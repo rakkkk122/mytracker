@@ -1,5 +1,5 @@
 # MyTracker 📱
-
+🌐 **Bahasa:** [English](README.md) | [Bahasa Indonesia](README.id.md)
 **MyTracker** is an Android application designed to help users build better habits, organize daily plans, and manage personal finances in one place.
 
 The goal is to make everyday life more organized, productive, and financially mindful through a simple and intuitive mobile experience.
