@@ -39,7 +39,7 @@ MyTracker aims to provide a clean, modern, and user-friendly interface:
 
 ## 🛠️ Built With
 
-* **Android Studio**
+* **Android Studio (Jetpack Compose)**
 * **Gradle**
 * **Android SDK**
 
