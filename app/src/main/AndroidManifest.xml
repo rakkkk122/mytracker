@@ -47,6 +47,7 @@
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
                 <action android:name="com.example.tracker.ACTION_ALARM_TRIGGER" />
                 <action android:name="com.example.tracker.ACTION_DISMISS_ALARM" />
+                <action android:name="com.example.tracker.ACTION_COMPLETE_ALARM" />
             </intent-filter>
         </receiver>
     </application>
