@@ -10,6 +10,7 @@ import com.example.tracker.TrackerApplication
 import com.example.tracker.data.Expense
 import com.example.tracker.data.ExpenseRepository
 import com.example.tracker.data.ImageStorage
+import com.example.tracker.data.UserPreferences
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +31,8 @@ import java.time.ZoneId
 @OptIn(ExperimentalCoroutinesApi::class)
 class MoneyViewModel(
     private val expenseRepository: ExpenseRepository,
-    private val imageStorage: ImageStorage
+    private val imageStorage: ImageStorage,
+    private val userPreferences: UserPreferences
 ) : ViewModel() {
 
     private val zone: ZoneId get() = ZoneId.systemDefault()
@@ -43,6 +45,9 @@ class MoneyViewModel(
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
+
+    private val _budgetUpdateCounter = MutableStateFlow(0)
+    val budgetUpdateCounter: StateFlow<Int> = _budgetUpdateCounter.asStateFlow()
 
     /** Semua data pengeluaran */
     val allExpensesUiState: StateFlow<List<Expense>> =
@@ -123,6 +128,18 @@ class MoneyViewModel(
 
     fun goToToday() = selectDate(LocalDate.now())
 
+    fun getBudgetForMonth(yearMonth: YearMonth): Double {
+        return userPreferences.getBudgetForMonth(yearMonth)
+    }
+
+    fun setBudgetForMonth(yearMonth: YearMonth, amount: Double) {
+        userPreferences.setBudgetForMonth(yearMonth, amount)
+        _budgetUpdateCounter.value += 1
+        val formattedMonth = yearMonth.monthValue
+        val formattedYear = yearMonth.year
+        _messages.tryEmit("Budget bulan $formattedMonth/$formattedYear berhasil disimpan.")
+    }
+
     fun addExpense(expense: Expense, pickedImage: Uri? = null) {
         viewModelScope.launch {
             val savedPath = pickedImage?.let { imageStorage.save(it) }
@@ -152,7 +169,8 @@ class MoneyViewModel(
                 val application = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as TrackerApplication)
                 val expenseRepository = application.container.expenseRepository
                 val imageStorage = ImageStorage(application.applicationContext)
-                MoneyViewModel(expenseRepository, imageStorage)
+                val userPreferences = UserPreferences(application.applicationContext)
+                MoneyViewModel(expenseRepository, imageStorage, userPreferences)
             }
         }
     }

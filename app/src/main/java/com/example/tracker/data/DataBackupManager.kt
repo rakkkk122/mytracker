@@ -50,13 +50,14 @@ data class BackupPayload(
     val exportedDate: String,
     val preferences: BackupPreferences?,
     val plans: List<BackupPlan>,
-    val expenses: List<BackupExpense> = emptyList()
+    val expenses: List<BackupExpense> = emptyList(),
+    val budgets: List<BackupBudget> = emptyList()
 )
 
 object DataBackupManager {
 
     /**
-     * Mengekspor seluruh data plan, pengeluaran, dan preferensi aplikasi ke dalam format JSON.
+     * Mengekspor seluruh data plan, pengeluaran, preferensi, dan budget bulanan ke dalam format JSON.
      * Gambar internal di-encode ke Base64 agar dapat dipulihkan ke perangkat lain.
      */
     suspend fun exportToJson(context: Context): String = withContext(Dispatchers.IO) {
@@ -69,7 +70,7 @@ object DataBackupManager {
         val allExpenses = expenseRepo.getAllExpensesStream().first()
 
         val rootJson = JSONObject().apply {
-            put("version", 2)
+            put("version", 3)
             put("app", "Tracker")
             put("exportedAt", System.currentTimeMillis())
             put("exportedDate", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
@@ -132,6 +133,18 @@ object DataBackupManager {
                 expensesArray.put(expenseObj)
             }
             put("expenses", expensesArray)
+
+            // Daftar budget bulanan
+            val budgetsArray = JSONArray()
+            prefs.getAllMonthlyBudgets().forEach { b ->
+                val bObj = JSONObject().apply {
+                    put("year", b.year)
+                    put("month", b.month)
+                    put("amount", b.amount)
+                }
+                budgetsArray.put(bObj)
+            }
+            put("budgets", budgetsArray)
         }
 
         rootJson.toString(2)
@@ -192,6 +205,19 @@ object DataBackupManager {
             )
         }
 
+        val budgetsList = mutableListOf<BackupBudget>()
+        val budgetsArray = root.optJSONArray("budgets") ?: JSONArray()
+        for (i in 0 until budgetsArray.length()) {
+            val obj = budgetsArray.getJSONObject(i)
+            budgetsList.add(
+                BackupBudget(
+                    year = obj.optInt("year", 0),
+                    month = obj.optInt("month", 0),
+                    amount = obj.optDouble("amount", 0.0)
+                )
+            )
+        }
+
         return BackupPayload(
             version = version,
             app = app,
@@ -199,7 +225,8 @@ object DataBackupManager {
             exportedDate = exportedDate,
             preferences = preferences,
             plans = plansList,
-            expenses = expensesList
+            expenses = expensesList,
+            budgets = budgetsList
         )
     }
 
@@ -290,8 +317,14 @@ object DataBackupManager {
             }
         }
 
+        val prefs = UserPreferences(context)
+        payload.budgets.forEach { b ->
+            if (b.year > 0 && b.month in 1..12 && b.amount >= 0) {
+                prefs.setBudgetForMonth(b.year, b.month, b.amount)
+            }
+        }
+
         if (restorePreferences && payload.preferences != null) {
-            val prefs = UserPreferences(context)
             prefs.notificationsEnabled = payload.preferences.notificationsEnabled
             prefs.defaultAlarmTone = payload.preferences.defaultAlarmTone
             prefs.darkMode = payload.preferences.darkMode

@@ -47,7 +47,9 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -57,6 +59,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -132,6 +135,18 @@ fun MoneyScreen(
     val allExpenses by viewModel.allExpensesUiState.collectAsState()
     val dailyTotal by viewModel.dailyTotal.collectAsState()
     val expenseCounts by viewModel.expenseCountByDate.collectAsState()
+
+    val budgetCounter by viewModel.budgetUpdateCounter.collectAsState()
+    val visibleMonthBudget = remember(visibleMonth, budgetCounter) { viewModel.getBudgetForMonth(visibleMonth) }
+    var showSetBudgetDialog by remember { mutableStateOf(false) }
+
+    val monthTotalExpenses = remember(allExpenses, visibleMonth) {
+        val z = ZoneId.systemDefault()
+        allExpenses.filter {
+            val date = Instant.ofEpochMilli(it.dateMillis).atZone(z).toLocalDate()
+            YearMonth.from(date) == visibleMonth
+        }.sumOf { it.amount }
+    }
 
     var showAddDialog by remember { mutableStateOf(false) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
@@ -244,6 +259,13 @@ fun MoneyScreen(
                         onToday = viewModel::goToToday,
                         onSelectDate = viewModel::selectDate
                     )
+
+                    MonthlyBudgetCard(
+                        month = visibleMonth,
+                        budget = visibleMonthBudget,
+                        monthTotal = monthTotalExpenses,
+                        onSetBudgetClick = { showSetBudgetDialog = true }
+                    )
                 }
             }
 
@@ -283,6 +305,18 @@ fun MoneyScreen(
                 }
             }
         }
+    }
+
+    if (showSetBudgetDialog) {
+        SetBudgetDialog(
+            selectedMonth = visibleMonth,
+            currentBudget = visibleMonthBudget,
+            onDismiss = { showSetBudgetDialog = false },
+            onConfirm = { newBudget ->
+                viewModel.setBudgetForMonth(visibleMonth, newBudget)
+                showSetBudgetDialog = false
+            }
+        )
     }
 
     if (showAddDialog) {
@@ -1216,4 +1250,316 @@ fun AddExpenseDialog(
             }
         )
     }
+}
+
+@Composable
+private fun MonthlyBudgetCard(
+    month: YearMonth,
+    budget: Double,
+    monthTotal: Double,
+    onSetBudgetClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val monthName = month.format(DateTimeFormatter.ofPattern("MMMM yyyy", IndonesianLocale))
+
+    var expanded by rememberSaveable { mutableStateOf(true) }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "budgetCardArrow"
+    )
+
+    val hasBudget = budget > 0
+    val ratio = if (hasBudget) (monthTotal / budget).coerceIn(0.0, 1.0).toFloat() else 0f
+    val pct = if (hasBudget) ((monthTotal / budget) * 100).toInt() else 0
+    val savedAmount = if (hasBudget && monthTotal < budget) budget - monthTotal else 0.0
+    val isNearBudget = hasBudget && monthTotal >= 0.8 * budget && monthTotal < budget
+    val isOverBudget = hasBudget && monthTotal >= budget
+
+    val progressColor = when {
+        isOverBudget -> colors.error
+        isNearBudget -> Color(0xFFE65100)
+        else -> colors.primary
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                isOverBudget -> colors.errorContainer.copy(alpha = 0.5f)
+                isNearBudget -> Color(0xFFFFF3E0)
+                else -> colors.surfaceContainer
+            }
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .animateContentSize()
+                .padding(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { expanded = !expanded }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountBalanceWallet,
+                        contentDescription = null,
+                        tint = progressColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Budget $monthName",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Minimize Budget" else "Perluas Budget",
+                        modifier = Modifier
+                            .size(20.dp)
+                            .rotate(arrowRotation)
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onSetBudgetClick,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = if (hasBudget) "Edit Budget" else "Atur Budget",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+
+            if (!expanded) {
+                // Tampilan Minimized (Ringkas)
+                if (hasBudget) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${formatRupiah(monthTotal)} / ${formatRupiah(budget)} ($pct%)",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.onSurfaceVariant
+                        )
+                        if (isOverBudget) {
+                            Text(
+                                text = "🚨 Over ${formatRupiah(monthTotal - budget)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.error,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else if (isNearBudget) {
+                            Text(
+                                text = "⚠️ Hampir Habis",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFE65100),
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Text(
+                                text = "Sisa: ${formatRupiah(savedAmount)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Tampilan Expanded (Lengkap)
+                Spacer(Modifier.height(8.dp))
+
+                if (!hasBudget) {
+                    Text(
+                        text = "Belum ada budget bulan ini. Ketuk 'Atur Budget' untuk memasukkan batas pengeluaran.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        Column {
+                            Text(
+                                text = "Terpakai: ${formatRupiah(monthTotal)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Budget: ${formatRupiah(budget)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "$pct% terpakai",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = progressColor
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(6.dp))
+
+                    LinearProgressIndicator(
+                        progress = { ratio },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(CircleShape),
+                        color = progressColor,
+                        trackColor = colors.surfaceContainerHighest
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isOverBudget) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = colors.error
+                            ) {
+                                Text(
+                                    text = "🚨 Melebihi budget ${formatRupiah(monthTotal - budget)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.onError,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        } else if (isNearBudget) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFE65100)
+                            ) {
+                                Text(
+                                    text = "⚠️ Hampir mencapai batas budget!",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = colors.primaryContainer
+                            ) {
+                                Text(
+                                    text = "Disimpan dari Budget: ${formatRupiah(savedAmount)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.onPrimaryContainer,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SetBudgetDialog(
+    selectedMonth: YearMonth,
+    currentBudget: Double,
+    onDismiss: () -> Unit,
+    onConfirm: (Double) -> Unit
+) {
+    var amountText by remember {
+        mutableStateOf(if (currentBudget > 0) currentBudget.toLong().toString() else "")
+    }
+    var errorText by remember { mutableStateOf<String?>(null) }
+
+    val monthName = selectedMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", IndonesianLocale))
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Atur Budget ($monthName)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Tentukan batas pengeluaran bulan $monthName.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { input ->
+                        amountText = input.filter { it.isDigit() }
+                        errorText = null
+                    },
+                    label = { Text("Budget (Rp)") },
+                    placeholder = { Text("Contoh: 3000000") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    isError = errorText != null,
+                    supportingText = errorText?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val parsed = amountText.toDoubleOrNull()
+                    if (parsed == null || parsed < 0) {
+                        errorText = "Masukkan nilai budget yang valid."
+                    } else {
+                        onConfirm(parsed)
+                    }
+                }
+            ) {
+                Text("Simpan")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Batal")
+            }
+        }
+    )
 }

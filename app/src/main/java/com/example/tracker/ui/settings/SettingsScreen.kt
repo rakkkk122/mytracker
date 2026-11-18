@@ -325,7 +325,7 @@ fun SettingsScreen(onThemeChanged: () -> Unit = {}) {
                 coroutineScope.launch {
                     try {
                         isProcessingBackup = true
-                        val count = DataBackupManager.importBackup(
+                        DataBackupManager.importBackup(
                             context = context,
                             payload = payloadToImport,
                             replaceExisting = replaceExisting,
@@ -338,7 +338,7 @@ fun SettingsScreen(onThemeChanged: () -> Unit = {}) {
                             defaultTone = prefs.defaultAlarmTone
                             onThemeChanged()
                         }
-                        Toast.makeText(context, "Berhasil mengimpor $count plan!", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Berhasil mengimpor data!", Toast.LENGTH_LONG).show()
                     } catch (e: Exception) {
                         Toast.makeText(context, "Gagal mengimpor data: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                     } finally {
@@ -389,8 +389,9 @@ private fun ImportConfirmDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                val budgetSummary = if (payload.budgets.isNotEmpty()) ", dan ${payload.budgets.size} budget bulanan" else ""
                 Text(
-                    text = "Ditemukan ${payload.plans.size} plan dan ${payload.expenses.size} pengeluaran dalam file cadangan.",
+                    text = "Ditemukan ${payload.plans.size} plan, ${payload.expenses.size} pengeluaran$budgetSummary dalam file cadangan.",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold
                 )

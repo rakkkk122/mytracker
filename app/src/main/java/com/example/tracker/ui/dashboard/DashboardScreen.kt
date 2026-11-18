@@ -45,9 +45,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tracker.data.Expense
 import com.example.tracker.data.Plan
 import com.example.tracker.ui.money.MoneyViewModel
+import com.example.tracker.ui.money.SetBudgetDialog
 import com.example.tracker.ui.money.formatRupiah
 import com.example.tracker.ui.plan.CopyPlanDatePicker
 import com.example.tracker.ui.plan.PlanImage
+import androidx.compose.material.icons.filled.Edit
 import com.example.tracker.ui.plan.PlanViewModel
 import java.time.Instant
 import java.time.LocalDate
@@ -163,6 +165,12 @@ fun DashboardScreen(
     // Bulan yang dipilih untuk statistik pengeluaran (navigasi per bulan)
     var selectedExpenseMonth by remember { mutableStateOf(YearMonth.now()) }
     var activeExpenseDetailView by remember { mutableStateOf<DetailViewType?>(null) }
+
+    val budgetCounter by moneyViewModel.budgetUpdateCounter.collectAsState()
+    val selectedExpenseMonthBudget = remember(selectedExpenseMonth, budgetCounter) {
+        moneyViewModel.getBudgetForMonth(selectedExpenseMonth)
+    }
+    var showSetBudgetDialogMonth by remember { mutableStateOf<YearMonth?>(null) }
 
     // Perhitungan bulanan untuk pengeluaran (berdasarkan selectedExpenseMonth)
     val expenseMonthStart = selectedExpenseMonth.atDay(1)
@@ -370,6 +378,8 @@ fun DashboardScreen(
                 weekCount = weekExpenseCount,
                 monthTotal = monthExpenseTotal,
                 monthCount = monthExpenseCount,
+                monthBudget = selectedExpenseMonthBudget,
+                onSetBudget = { showSetBudgetDialogMonth = selectedExpenseMonth },
                 percentageChange = expensePercentageChange,
                 recentExpenses = monthExpenses.take(5),
                 onWeekClick = { activeExpenseDetailView = DetailViewType.WEEKLY },
@@ -423,7 +433,21 @@ fun DashboardScreen(
             groupedDays = groupedDays,
             totalAmount = totalAmount,
             totalCount = totalCount,
+            monthBudget = selectedExpenseMonthBudget,
+            onSetBudget = { showSetBudgetDialogMonth = selectedExpenseMonth },
             onDismiss = { activeExpenseDetailView = null }
+        )
+    }
+
+    showSetBudgetDialogMonth?.let { month ->
+        SetBudgetDialog(
+            selectedMonth = month,
+            currentBudget = moneyViewModel.getBudgetForMonth(month),
+            onDismiss = { showSetBudgetDialogMonth = null },
+            onConfirm = { newBudget ->
+                moneyViewModel.setBudgetForMonth(month, newBudget)
+                showSetBudgetDialogMonth = null
+            }
         )
     }
 
@@ -1886,6 +1910,8 @@ private fun FinanceDashboardCard(
     weekCount: Int,
     monthTotal: Double,
     monthCount: Int,
+    monthBudget: Double = 0.0,
+    onSetBudget: () -> Unit = {},
     percentageChange: Double,
     recentExpenses: List<Expense>,
     onWeekClick: () -> Unit,
@@ -2165,6 +2191,154 @@ private fun FinanceDashboardCard(
 
             Spacer(Modifier.height(14.dp))
 
+            // Box Informasi & Pengawasan Budget Bulanan
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(onClick = onSetBudget),
+                shape = RoundedCornerShape(16.dp),
+                color = when {
+                    monthBudget > 0 && monthTotal >= monthBudget -> colors.errorContainer.copy(alpha = 0.5f)
+                    monthBudget > 0 && monthTotal >= 0.8 * monthBudget -> Color(0xFFFFF3E0)
+                    else -> colors.surfaceContainer
+                }
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountBalanceWallet,
+                                contentDescription = null,
+                                tint = colors.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Budget ${selectedMonth.format(DateTimeFormatter.ofPattern("MMM yyyy", IndonesianLocale))}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        TextButton(
+                            onClick = onSetBudget,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = if (monthBudget > 0) "Edit" else "Atur Budget",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+
+                    if (monthBudget <= 0) {
+                        Text(
+                            text = "Belum ada budget yang ditentukan untuk bulan ini. Ketuk untuk mengatur.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant
+                        )
+                    } else {
+                        val pct = ((monthTotal / monthBudget) * 100).toInt()
+                        val ratio = (monthTotal / monthBudget).coerceIn(0.0, 1.0).toFloat()
+                        val savedAmount = (monthBudget - monthTotal).coerceAtLeast(0.0)
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Budget: ${formatRupiah(monthBudget)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "$pct% terpakai",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = when {
+                                    monthTotal >= monthBudget -> colors.error
+                                    monthTotal >= 0.8 * monthBudget -> Color(0xFFE65100)
+                                    else -> colors.primary
+                                }
+                            )
+                        }
+
+                        Spacer(Modifier.height(6.dp))
+
+                        LinearProgressIndicator(
+                            progress = { ratio },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(CircleShape),
+                            color = when {
+                                monthTotal >= monthBudget -> colors.error
+                                monthTotal >= 0.8 * monthBudget -> Color(0xFFE65100)
+                                else -> colors.primary
+                            },
+                            trackColor = colors.surfaceContainerHighest
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        if (monthTotal >= monthBudget) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = colors.error
+                            ) {
+                                Text(
+                                    text = "🚨 Melebihi budget ${formatRupiah(monthTotal - monthBudget)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.onError,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        } else if (monthTotal >= 0.8 * monthBudget) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFE65100)
+                            ) {
+                                Text(
+                                    text = "⚠️ Hampir mencapai batas budget!",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = colors.primaryContainer
+                            ) {
+                                Text(
+                                    text = "Disimpan dari Budget: ${formatRupiah(savedAmount)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.onPrimaryContainer,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
             // Percentage change badge
             val (badgeBg, badgeFg, icon, pctText) = when {
                 percentageChange > 0 -> PctBadgeData(
@@ -2289,6 +2463,8 @@ private fun ExpenseDetailBottomSheet(
     groupedDays: List<Pair<LocalDate, List<Expense>>>,
     totalAmount: Double,
     totalCount: Int,
+    monthBudget: Double = 0.0,
+    onSetBudget: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -2462,6 +2638,136 @@ private fun ExpenseDetailBottomSheet(
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
+                    }
+                }
+            }
+
+            if (!isWeekly) {
+                Spacer(Modifier.height(10.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Budget Bulanan",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(
+                                onClick = onSetBudget,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = if (monthBudget > 0) "Edit Budget" else "Atur Budget",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        }
+
+                        if (monthBudget <= 0) {
+                            Text(
+                                text = "Budget belum ditentukan untuk bulan ini.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            val savedAmount = (monthBudget - totalAmount).coerceAtLeast(0.0)
+                            val pct = ((totalAmount / monthBudget) * 100).toInt()
+                            val ratio = (totalAmount / monthBudget).coerceIn(0.0, 1.0).toFloat()
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Budget: ${formatRupiah(monthBudget)}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "$pct% terpakai",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when {
+                                        totalAmount >= monthBudget -> MaterialTheme.colorScheme.error
+                                        totalAmount >= 0.8 * monthBudget -> Color(0xFFE65100)
+                                        else -> MaterialTheme.colorScheme.primary
+                                    }
+                                )
+                            }
+
+                            Spacer(Modifier.height(6.dp))
+
+                            LinearProgressIndicator(
+                                progress = { ratio },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(CircleShape),
+                                color = when {
+                                    totalAmount >= monthBudget -> MaterialTheme.colorScheme.error
+                                    totalAmount >= 0.8 * monthBudget -> Color(0xFFE65100)
+                                    else -> MaterialTheme.colorScheme.primary
+                                },
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+
+                            Spacer(Modifier.height(8.dp))
+
+                            if (totalAmount >= monthBudget) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.error
+                                ) {
+                                    Text(
+                                        text = "🚨 Melebihi budget ${formatRupiah(totalAmount - monthBudget)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onError,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            } else if (totalAmount >= 0.8 * monthBudget) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFE65100)
+                                ) {
+                                    Text(
+                                        text = "⚠️ Penggunaan mendekati budget!",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Text(
+                                        text = "Uang Tersimpan dari Budget: ${formatRupiah(savedAmount)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

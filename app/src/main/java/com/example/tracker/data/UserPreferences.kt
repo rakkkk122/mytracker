@@ -2,6 +2,12 @@ package com.example.tracker.data
 
 import android.content.Context
 
+data class BackupBudget(
+    val year: Int,
+    val month: Int,
+    val amount: Double
+)
+
 class UserPreferences(context: Context) {
 
     private val prefs = context.applicationContext
@@ -29,6 +35,43 @@ class UserPreferences(context: Context) {
     var themeColor: Int
         get() = prefs.getInt(KEY_THEME_COLOR, 0)
         set(value) = prefs.edit().putInt(KEY_THEME_COLOR, value).apply()
+
+    fun getBudgetForMonth(year: Int, month: Int): Double {
+        val key = "budget_${year}_$month"
+        val valueStr = prefs.getString(key, null) ?: return 0.0
+        return valueStr.toDoubleOrNull() ?: 0.0
+    }
+
+    fun getBudgetForMonth(yearMonth: java.time.YearMonth): Double {
+        return getBudgetForMonth(yearMonth.year, yearMonth.monthValue)
+    }
+
+    fun setBudgetForMonth(year: Int, month: Int, amount: Double) {
+        val key = "budget_${year}_$month"
+        prefs.edit().putString(key, amount.toString()).apply()
+    }
+
+    fun setBudgetForMonth(yearMonth: java.time.YearMonth, amount: Double) {
+        setBudgetForMonth(yearMonth.year, yearMonth.monthValue, amount)
+    }
+
+    fun getAllMonthlyBudgets(): List<BackupBudget> {
+        val list = mutableListOf<BackupBudget>()
+        prefs.all.forEach { (key, value) ->
+            if (key.startsWith("budget_")) {
+                val parts = key.removePrefix("budget_").split("_")
+                if (parts.size == 2) {
+                    val year = parts[0].toIntOrNull()
+                    val month = parts[1].toIntOrNull()
+                    val amount = (value as? String)?.toDoubleOrNull()
+                    if (year != null && month != null && amount != null) {
+                        list.add(BackupBudget(year, month, amount))
+                    }
+                }
+            }
+        }
+        return list
+    }
 
     private companion object {
         const val KEY_NOTIFICATIONS = "notifications_enabled"
