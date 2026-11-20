@@ -117,6 +117,21 @@ fun formatRupiah(amount: Double): String {
     return "Rp ${formatter.format(amount.toLong())}"
 }
 
+/** Utility untuk memformat string input nominal secara otomatis dengan pemisah ribuan (mis. 1.000.000) */
+fun formatAmountInput(rawInput: String): String {
+    val cleanDigits = rawInput.filter { it.isDigit() }
+    if (cleanDigits.isEmpty()) return ""
+    val number = cleanDigits.toLongOrNull() ?: return cleanDigits
+    val formatter = DecimalFormat("#,###", DecimalFormatSymbols(IndonesianLocale))
+    return formatter.format(number)
+}
+
+/** Utility untuk mengambil nilai Double dari string input nominal yang terformat */
+fun parseAmountInput(formattedInput: String): Double {
+    val cleanDigits = formattedInput.filter { it.isDigit() }
+    return cleanDigits.toDoubleOrNull() ?: 0.0
+}
+
 data class NewExpenseInput(
     val title: String,
     val amount: Double,
@@ -1120,9 +1135,10 @@ fun AddExpenseDialog(
 
                 OutlinedTextField(
                     value = amountText,
-                    onValueChange = { amountText = it.filter { c -> c.isDigit() } },
+                    onValueChange = { input -> amountText = formatAmountInput(input) },
                     label = { Text("Biaya (Rupiah)") },
                     leadingIcon = { Text("Rp ", fontWeight = FontWeight.Bold) },
+                    placeholder = { Text("Contoh: 100.000") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -1203,7 +1219,7 @@ fun AddExpenseDialog(
                     Spacer(Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            val amount = amountText.toDoubleOrNull() ?: 0.0
+                            val amount = parseAmountInput(amountText)
                             if (title.isNotBlank() && amount > 0) {
                                 onConfirm(
                                     NewExpenseInput(
@@ -1216,7 +1232,7 @@ fun AddExpenseDialog(
                                 )
                             }
                         },
-                        enabled = title.isNotBlank() && (amountText.toDoubleOrNull() ?: 0.0) > 0
+                        enabled = title.isNotBlank() && parseAmountInput(amountText) > 0
                     ) {
                         Text("Simpan")
                     }
@@ -1504,7 +1520,7 @@ fun SetBudgetDialog(
     onConfirm: (Double) -> Unit
 ) {
     var amountText by remember {
-        mutableStateOf(if (currentBudget > 0) currentBudget.toLong().toString() else "")
+        mutableStateOf(if (currentBudget > 0) formatAmountInput(currentBudget.toLong().toString()) else "")
     }
     var errorText by remember { mutableStateOf<String?>(null) }
 
@@ -1529,11 +1545,12 @@ fun SetBudgetDialog(
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { input ->
-                        amountText = input.filter { it.isDigit() }
+                        amountText = formatAmountInput(input)
                         errorText = null
                     },
                     label = { Text("Budget (Rp)") },
-                    placeholder = { Text("Contoh: 3000000") },
+                    leadingIcon = { Text("Rp ", fontWeight = FontWeight.Bold) },
+                    placeholder = { Text("Contoh: 3.000.000") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     isError = errorText != null,
                     supportingText = errorText?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
@@ -1545,8 +1562,8 @@ fun SetBudgetDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val parsed = amountText.toDoubleOrNull()
-                    if (parsed == null || parsed < 0) {
+                    val parsed = parseAmountInput(amountText)
+                    if (parsed <= 0 && amountText.isNotBlank()) {
                         errorText = "Masukkan nilai budget yang valid."
                     } else {
                         onConfirm(parsed)
