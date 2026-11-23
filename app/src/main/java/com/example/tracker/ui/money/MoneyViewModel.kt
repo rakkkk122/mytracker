@@ -128,12 +128,17 @@ class MoneyViewModel(
 
     fun goToToday() = selectDate(LocalDate.now())
 
-    fun getBudgetForMonth(yearMonth: YearMonth): Double {
+    fun getBudgetForMonth(yearMonth: YearMonth): com.example.tracker.data.Budget {
         return userPreferences.getBudgetForMonth(yearMonth)
     }
 
-    fun setBudgetForMonth(yearMonth: YearMonth, amount: Double) {
-        userPreferences.setBudgetForMonth(yearMonth, amount)
+    fun setBudgetForMonth(
+        yearMonth: YearMonth,
+        amount: Double,
+        startDate: LocalDate = yearMonth.atDay(1),
+        endDate: LocalDate = yearMonth.atEndOfMonth()
+    ) {
+        userPreferences.setBudgetForMonth(yearMonth, amount, startDate, endDate)
         _budgetUpdateCounter.value += 1
         val formattedMonth = yearMonth.monthValue
         val formattedYear = yearMonth.year

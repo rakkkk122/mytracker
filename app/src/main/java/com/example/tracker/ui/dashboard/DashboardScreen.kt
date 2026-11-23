@@ -62,6 +62,7 @@ import java.util.Locale
 private val IndonesianLocale = Locale("id", "ID")
 private val TimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val DateFormatter = DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", IndonesianLocale)
+private val ShortDateFormatter = DateTimeFormatter.ofPattern("d MMM", IndonesianLocale)
 private val WeekdayLabels = listOf("Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min")
 
 enum class DetailViewType {
@@ -169,6 +170,13 @@ fun DashboardScreen(
     val budgetCounter by moneyViewModel.budgetUpdateCounter.collectAsState()
     val selectedExpenseMonthBudget = remember(selectedExpenseMonth, budgetCounter) {
         moneyViewModel.getBudgetForMonth(selectedExpenseMonth)
+    }
+    val monthBudgetTotalExpense = remember(allExpenses, selectedExpenseMonthBudget) {
+        val z = ZoneId.systemDefault()
+        allExpenses.filter {
+            val date = Instant.ofEpochMilli(it.dateMillis).atZone(z).toLocalDate()
+            !date.isBefore(selectedExpenseMonthBudget.startDate) && !date.isAfter(selectedExpenseMonthBudget.endDate)
+        }.sumOf { it.amount }
     }
     var showSetBudgetDialogMonth by remember { mutableStateOf<YearMonth?>(null) }
 
@@ -363,29 +371,29 @@ fun DashboardScreen(
         }
 
         item {
-            Spacer(Modifier.height(8.dp))
-            FinanceDashboardCard(
-                selectedMonth = selectedExpenseMonth,
-                onPreviousMonth = { selectedExpenseMonth = selectedExpenseMonth.minusMonths(1) },
-                onNextMonth = { selectedExpenseMonth = selectedExpenseMonth.plusMonths(1) },
-                onResetToCurrentMonth = { selectedExpenseMonth = YearMonth.now() },
-                selectedWeekStart = selectedExpenseWeekStart,
-                currentWeekStart = currentWeekStart,
-                onPreviousWeek = { selectedExpenseWeekStart = selectedExpenseWeekStart.minusWeeks(1) },
-                onNextWeek = { selectedExpenseWeekStart = selectedExpenseWeekStart.plusWeeks(1) },
-                onResetToCurrentWeek = { selectedExpenseWeekStart = currentWeekStart },
-                weekTotal = weekExpenseTotal,
-                weekCount = weekExpenseCount,
-                monthTotal = monthExpenseTotal,
-                monthCount = monthExpenseCount,
-                monthBudget = selectedExpenseMonthBudget,
-                onSetBudget = { showSetBudgetDialogMonth = selectedExpenseMonth },
-                percentageChange = expensePercentageChange,
-                recentExpenses = monthExpenses.take(5),
-                onWeekClick = { activeExpenseDetailView = DetailViewType.WEEKLY },
-                onMonthClick = { activeExpenseDetailView = DetailViewType.MONTHLY }
-            )
-        }
+        Spacer(Modifier.height(8.dp))
+        FinanceDashboardCard(
+            selectedMonth = selectedExpenseMonth,
+            onPreviousMonth = { selectedExpenseMonth = selectedExpenseMonth.minusMonths(1) },
+            onNextMonth = { selectedExpenseMonth = selectedExpenseMonth.plusMonths(1) },
+            onResetToCurrentMonth = { selectedExpenseMonth = YearMonth.now() },
+            selectedWeekStart = selectedExpenseWeekStart,
+            currentWeekStart = currentWeekStart,
+            onPreviousWeek = { selectedExpenseWeekStart = selectedExpenseWeekStart.minusWeeks(1) },
+            onNextWeek = { selectedExpenseWeekStart = selectedExpenseWeekStart.plusWeeks(1) },
+            onResetToCurrentWeek = { selectedExpenseWeekStart = currentWeekStart },
+            weekTotal = weekExpenseTotal,
+            weekCount = weekExpenseCount,
+            monthTotal = monthBudgetTotalExpense,
+            monthCount = monthExpenseCount,
+            monthBudget = selectedExpenseMonthBudget,
+            onSetBudget = { showSetBudgetDialogMonth = selectedExpenseMonth },
+            percentageChange = expensePercentageChange,
+            recentExpenses = monthExpenses.take(5),
+            onWeekClick = { activeExpenseDetailView = DetailViewType.WEEKLY },
+            onMonthClick = { activeExpenseDetailView = DetailViewType.MONTHLY }
+        )
+    }
     }
 }
 
@@ -402,7 +410,7 @@ fun DashboardScreen(
         } else {
             selectedExpenseMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", IndonesianLocale))
         }
-        val totalAmount = if (isWeekly) weekExpenseTotal else monthExpenseTotal
+        val totalAmount = if (isWeekly) weekExpenseTotal else monthBudgetTotalExpense
         val totalCount = if (isWeekly) weekExpenseCount else monthExpenseCount
 
         val expensesByDay = allExpenses.groupBy {
@@ -444,8 +452,8 @@ fun DashboardScreen(
             selectedMonth = month,
             currentBudget = moneyViewModel.getBudgetForMonth(month),
             onDismiss = { showSetBudgetDialogMonth = null },
-            onConfirm = { newBudget ->
-                moneyViewModel.setBudgetForMonth(month, newBudget)
+            onConfirm = { newAmount, startDate, endDate ->
+                moneyViewModel.setBudgetForMonth(month, newAmount, startDate, endDate)
                 showSetBudgetDialogMonth = null
             }
         )
@@ -1910,7 +1918,7 @@ private fun FinanceDashboardCard(
     weekCount: Int,
     monthTotal: Double,
     monthCount: Int,
-    monthBudget: Double = 0.0,
+    monthBudget: com.example.tracker.data.Budget = com.example.tracker.data.Budget(amount = 0.0, startDate = LocalDate.now(), endDate = LocalDate.now()),
     onSetBudget: () -> Unit = {},
     percentageChange: Double,
     recentExpenses: List<Expense>,
@@ -1918,6 +1926,8 @@ private fun FinanceDashboardCard(
     onMonthClick: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
+    val dateRangeStr = "${monthBudget.startDate.format(ShortDateFormatter)} - ${monthBudget.endDate.format(ShortDateFormatter)}"
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
@@ -2199,8 +2209,8 @@ private fun FinanceDashboardCard(
                     .clickable(onClick = onSetBudget),
                 shape = RoundedCornerShape(16.dp),
                 color = when {
-                    monthBudget > 0 && monthTotal >= monthBudget -> colors.errorContainer.copy(alpha = 0.5f)
-                    monthBudget > 0 && monthTotal >= 0.8 * monthBudget -> Color(0xFFFFF3E0)
+                    monthBudget.amount > 0 && monthTotal >= monthBudget.amount -> colors.errorContainer.copy(alpha = 0.5f)
+                    monthBudget.amount > 0 && monthTotal >= 0.8 * monthBudget.amount -> Color(0xFFFFF3E0)
                     else -> colors.surfaceContainer
                 }
             ) {
@@ -2210,20 +2220,27 @@ private fun FinanceDashboardCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountBalanceWallet,
-                                contentDescription = null,
-                                tint = colors.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountBalanceWallet,
+                                    contentDescription = null,
+                                    tint = colors.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Budget ${selectedMonth.format(DateTimeFormatter.ofPattern("MMM yyyy", IndonesianLocale))}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                             Text(
-                                text = "Budget ${selectedMonth.format(DateTimeFormatter.ofPattern("MMM yyyy", IndonesianLocale))}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
+                                text = "Periode: $dateRangeStr",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant
                             )
                         }
                         TextButton(
@@ -2237,29 +2254,31 @@ private fun FinanceDashboardCard(
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                text = if (monthBudget > 0) "Edit" else "Atur Budget",
+                                text = if (monthBudget.amount > 0) "Edit" else "Atur Budget",
                                 style = MaterialTheme.typography.labelMedium
                             )
                         }
                     }
 
-                    if (monthBudget <= 0) {
+                    if (monthBudget.amount <= 0) {
                         Text(
-                            text = "Belum ada budget yang ditentukan untuk bulan ini. Ketuk untuk mengatur.",
+                            text = "Belum ada budget yang ditentukan untuk periode ini. Ketuk untuk mengatur.",
                             style = MaterialTheme.typography.bodySmall,
                             color = colors.onSurfaceVariant
                         )
                     } else {
-                        val pct = ((monthTotal / monthBudget) * 100).toInt()
-                        val ratio = (monthTotal / monthBudget).coerceIn(0.0, 1.0).toFloat()
-                        val savedAmount = (monthBudget - monthTotal).coerceAtLeast(0.0)
+                        val pct = ((monthTotal / monthBudget.amount) * 100).toInt()
+                        val ratio = (monthTotal / monthBudget.amount).coerceIn(0.0, 1.0).toFloat()
+                        val isOverBudget = monthTotal > monthBudget.amount
+                        val overAmount = monthTotal - monthBudget.amount
+                        val savedAmount = (monthBudget.amount - monthTotal).coerceAtLeast(0.0)
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Budget: ${formatRupiah(monthBudget)}",
+                                text = "Budget: ${formatRupiah(monthBudget.amount)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -2268,8 +2287,8 @@ private fun FinanceDashboardCard(
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
                                 color = when {
-                                    monthTotal >= monthBudget -> colors.error
-                                    monthTotal >= 0.8 * monthBudget -> Color(0xFFE65100)
+                                    monthTotal >= monthBudget.amount -> colors.error
+                                    monthTotal >= 0.8 * monthBudget.amount -> Color(0xFFE65100)
                                     else -> colors.primary
                                 }
                             )
@@ -2284,8 +2303,8 @@ private fun FinanceDashboardCard(
                                 .height(6.dp)
                                 .clip(CircleShape),
                             color = when {
-                                monthTotal >= monthBudget -> colors.error
-                                monthTotal >= 0.8 * monthBudget -> Color(0xFFE65100)
+                                monthTotal >= monthBudget.amount -> colors.error
+                                monthTotal >= 0.8 * monthBudget.amount -> Color(0xFFE65100)
                                 else -> colors.primary
                             },
                             trackColor = colors.surfaceContainerHighest
@@ -2293,44 +2312,74 @@ private fun FinanceDashboardCard(
 
                         Spacer(Modifier.height(8.dp))
 
-                        if (monthTotal >= monthBudget) {
+                        if (isOverBudget) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = colors.error
+                                color = colors.errorContainer
                             ) {
-                                Text(
-                                    text = "🚨 Melebihi budget ${formatRupiah(monthTotal - monthBudget)}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = colors.onError,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "🚨 Melebihi budget!",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.onErrorContainer,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Selisih: +${formatRupiah(overAmount)} (Total: ${formatRupiah(monthTotal)})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.error,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
-                        } else if (monthTotal >= 0.8 * monthBudget) {
+                        } else if (monthTotal >= 0.8 * monthBudget.amount) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = Color(0xFFE65100)
                             ) {
-                                Text(
-                                    text = "⚠️ Hampir mencapai batas budget!",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "⚠️ Hampir mencapai batas budget!",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Sisa: ${formatRupiah(savedAmount)} (Total: ${formatRupiah(monthTotal)})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         } else {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = colors.primaryContainer
                             ) {
-                                Text(
-                                    text = "Disimpan dari Budget: ${formatRupiah(savedAmount)}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = colors.onPrimaryContainer,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "✅ Disimpan dari Budget: ${formatRupiah(savedAmount)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.onPrimaryContainer,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Total pengeluaran: ${formatRupiah(monthTotal)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.onPrimaryContainer.copy(alpha = 0.8f),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
                     }
@@ -2339,7 +2388,7 @@ private fun FinanceDashboardCard(
 
             Spacer(Modifier.height(14.dp))
 
-            // Percentage change badge
+            // Percentage change badge + total keseluruhan
             val (badgeBg, badgeFg, icon, pctText) = when {
                 percentageChange > 0 -> PctBadgeData(
                     colors.errorContainer,
@@ -2361,26 +2410,47 @@ private fun FinanceDashboardCard(
                 )
             }
 
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = badgeBg
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = badgeBg
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = badgeFg,
-                        modifier = Modifier.size(16.dp)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = badgeFg,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = pctText,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = badgeFg
+                        )
+                    }
+                }
+                // Total keseluruhan pengeluaran bulan ini
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "Total",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant
                     )
                     Text(
-                        text = pctText,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = badgeFg
+                        text = formatRupiah(monthTotal),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (monthBudget.amount > 0 && monthTotal > monthBudget.amount)
+                            colors.error else colors.onSurface
                     )
                 }
             }
@@ -2463,7 +2533,7 @@ private fun ExpenseDetailBottomSheet(
     groupedDays: List<Pair<LocalDate, List<Expense>>>,
     totalAmount: Double,
     totalCount: Int,
-    monthBudget: Double = 0.0,
+    monthBudget: com.example.tracker.data.Budget = com.example.tracker.data.Budget(amount = 0.0, startDate = LocalDate.now(), endDate = LocalDate.now()),
     onSetBudget: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
@@ -2655,11 +2725,18 @@ private fun ExpenseDetailBottomSheet(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Budget Bulanan",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Column {
+                                Text(
+                                    text = "Budget Bulanan",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "Periode: ${monthBudget.startDate.format(ShortDateFormatter)} - ${monthBudget.endDate.format(ShortDateFormatter)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             TextButton(
                                 onClick = onSetBudget,
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
@@ -2671,29 +2748,29 @@ private fun ExpenseDetailBottomSheet(
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text(
-                                    text = if (monthBudget > 0) "Edit Budget" else "Atur Budget",
+                                    text = if (monthBudget.amount > 0) "Edit Budget" else "Atur Budget",
                                     style = MaterialTheme.typography.labelMedium
                                 )
                             }
                         }
 
-                        if (monthBudget <= 0) {
+                        if (monthBudget.amount <= 0) {
                             Text(
-                                text = "Budget belum ditentukan untuk bulan ini.",
+                                text = "Budget belum ditentukan untuk periode ini.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            val savedAmount = (monthBudget - totalAmount).coerceAtLeast(0.0)
-                            val pct = ((totalAmount / monthBudget) * 100).toInt()
-                            val ratio = (totalAmount / monthBudget).coerceIn(0.0, 1.0).toFloat()
+                            val savedAmount = (monthBudget.amount - totalAmount).coerceAtLeast(0.0)
+                            val pct = ((totalAmount / monthBudget.amount) * 100).toInt()
+                            val ratio = (totalAmount / monthBudget.amount).coerceIn(0.0, 1.0).toFloat()
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "Budget: ${formatRupiah(monthBudget)}",
+                                    text = "Budget: ${formatRupiah(monthBudget.amount)}",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -2702,8 +2779,8 @@ private fun ExpenseDetailBottomSheet(
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = when {
-                                        totalAmount >= monthBudget -> MaterialTheme.colorScheme.error
-                                        totalAmount >= 0.8 * monthBudget -> Color(0xFFE65100)
+                                        totalAmount >= monthBudget.amount -> MaterialTheme.colorScheme.error
+                                        totalAmount >= 0.8 * monthBudget.amount -> Color(0xFFE65100)
                                         else -> MaterialTheme.colorScheme.primary
                                     }
                                 )
@@ -2718,8 +2795,8 @@ private fun ExpenseDetailBottomSheet(
                                     .height(6.dp)
                                     .clip(CircleShape),
                                 color = when {
-                                    totalAmount >= monthBudget -> MaterialTheme.colorScheme.error
-                                    totalAmount >= 0.8 * monthBudget -> Color(0xFFE65100)
+                                    totalAmount >= monthBudget.amount -> MaterialTheme.colorScheme.error
+                                    totalAmount >= 0.8 * monthBudget.amount -> Color(0xFFE65100)
                                     else -> MaterialTheme.colorScheme.primary
                                 },
                                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
@@ -2727,20 +2804,20 @@ private fun ExpenseDetailBottomSheet(
 
                             Spacer(Modifier.height(8.dp))
 
-                            if (totalAmount >= monthBudget) {
+                            if (totalAmount >= monthBudget.amount) {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = MaterialTheme.colorScheme.error
                                 ) {
                                     Text(
-                                        text = "🚨 Melebihi budget ${formatRupiah(totalAmount - monthBudget)}",
+                                        text = "🚨 Melebihi budget! Total: ${formatRupiah(totalAmount)}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onError,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                 }
-                            } else if (totalAmount >= 0.8 * monthBudget) {
+                            } else if (totalAmount >= 0.8 * monthBudget.amount) {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = Color(0xFFE65100)

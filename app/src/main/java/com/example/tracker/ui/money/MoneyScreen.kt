@@ -55,6 +55,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -68,7 +70,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
+import com.example.tracker.data.Budget
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -327,8 +331,8 @@ fun MoneyScreen(
             selectedMonth = visibleMonth,
             currentBudget = visibleMonthBudget,
             onDismiss = { showSetBudgetDialog = false },
-            onConfirm = { newBudget ->
-                viewModel.setBudgetForMonth(visibleMonth, newBudget)
+            onConfirm = { newAmount, startDate, endDate ->
+                viewModel.setBudgetForMonth(visibleMonth, newAmount, startDate, endDate)
                 showSetBudgetDialog = false
             }
         )
@@ -1271,13 +1275,14 @@ fun AddExpenseDialog(
 @Composable
 private fun MonthlyBudgetCard(
     month: YearMonth,
-    budget: Double,
+    budget: Budget,
     monthTotal: Double,
     onSetBudgetClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
     val monthName = month.format(DateTimeFormatter.ofPattern("MMMM yyyy", IndonesianLocale))
+    val dateRangeStr = "${budget.startDate.format(ShortDateFormatter)} - ${budget.endDate.format(ShortDateFormatter)}"
 
     var expanded by rememberSaveable { mutableStateOf(true) }
     val arrowRotation by animateFloatAsState(
@@ -1285,12 +1290,12 @@ private fun MonthlyBudgetCard(
         label = "budgetCardArrow"
     )
 
-    val hasBudget = budget > 0
-    val ratio = if (hasBudget) (monthTotal / budget).coerceIn(0.0, 1.0).toFloat() else 0f
-    val pct = if (hasBudget) ((monthTotal / budget) * 100).toInt() else 0
-    val savedAmount = if (hasBudget && monthTotal < budget) budget - monthTotal else 0.0
-    val isNearBudget = hasBudget && monthTotal >= 0.8 * budget && monthTotal < budget
-    val isOverBudget = hasBudget && monthTotal >= budget
+    val hasBudget = budget.amount > 0
+    val ratio = if (hasBudget) (monthTotal / budget.amount).coerceIn(0.0, 1.0).toFloat() else 0f
+    val pct = if (hasBudget) ((monthTotal / budget.amount) * 100).toInt() else 0
+    val savedAmount = if (hasBudget && monthTotal < budget.amount) budget.amount - monthTotal else 0.0
+    val isNearBudget = hasBudget && monthTotal >= 0.8 * budget.amount && monthTotal < budget.amount
+    val isOverBudget = hasBudget && monthTotal >= budget.amount
 
     val progressColor = when {
         isOverBudget -> colors.error
@@ -1336,11 +1341,18 @@ private fun MonthlyBudgetCard(
                         tint = progressColor,
                         modifier = Modifier.size(20.dp)
                     )
-                    Text(
-                        text = "Budget $monthName",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column {
+                        Text(
+                            text = "Budget $monthName",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Periode: $dateRangeStr",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.onSurfaceVariant
+                        )
+                    }
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
                         contentDescription = if (expanded) "Minimize Budget" else "Perluas Budget",
@@ -1378,14 +1390,14 @@ private fun MonthlyBudgetCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${formatRupiah(monthTotal)} / ${formatRupiah(budget)} ($pct%)",
+                            text = "${formatRupiah(monthTotal)} / ${formatRupiah(budget.amount)} ($pct%)",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
                             color = colors.onSurfaceVariant
                         )
                         if (isOverBudget) {
                             Text(
-                                text = "🚨 Over ${formatRupiah(monthTotal - budget)}",
+                                text = "🚨 Over ${formatRupiah(monthTotal - budget.amount)}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = colors.error,
                                 fontWeight = FontWeight.Bold
@@ -1413,7 +1425,7 @@ private fun MonthlyBudgetCard(
 
                 if (!hasBudget) {
                     Text(
-                        text = "Belum ada budget bulan ini. Ketuk 'Atur Budget' untuk memasukkan batas pengeluaran.",
+                        text = "Belum ada budget periode ini. Ketuk 'Atur Budget' untuk memasukkan batas pengeluaran.",
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.onSurfaceVariant
                     )
@@ -1430,7 +1442,7 @@ private fun MonthlyBudgetCard(
                                 color = colors.onSurfaceVariant
                             )
                             Text(
-                                text = "Budget: ${formatRupiah(budget)}",
+                                text = "Budget: ${formatRupiah(budget.amount)}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -1471,7 +1483,7 @@ private fun MonthlyBudgetCard(
                                 color = colors.error
                             ) {
                                 Text(
-                                    text = "🚨 Melebihi budget ${formatRupiah(monthTotal - budget)}",
+                                    text = "🚨 Melebihi budget! Total: ${formatRupiah(monthTotal)}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = colors.onError,
                                     fontWeight = FontWeight.Bold,
@@ -1512,17 +1524,23 @@ private fun MonthlyBudgetCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SetBudgetDialog(
     selectedMonth: YearMonth,
-    currentBudget: Double,
+    currentBudget: Budget,
     onDismiss: () -> Unit,
-    onConfirm: (Double) -> Unit
+    onConfirm: (amount: Double, startDate: LocalDate, endDate: LocalDate) -> Unit
 ) {
     var amountText by remember {
-        mutableStateOf(if (currentBudget > 0) formatAmountInput(currentBudget.toLong().toString()) else "")
+        mutableStateOf(if (currentBudget.amount > 0) formatAmountInput(currentBudget.amount.toLong().toString()) else "")
     }
+    var startDate by remember { mutableStateOf(currentBudget.startDate) }
+    var endDate by remember { mutableStateOf(currentBudget.endDate) }
     var errorText by remember { mutableStateOf<String?>(null) }
+
+    var pickingStartDate by remember { mutableStateOf(false) }
+    var pickingEndDate by remember { mutableStateOf(false) }
 
     val monthName = selectedMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", IndonesianLocale))
 
@@ -1536,12 +1554,13 @@ fun SetBudgetDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Tentukan batas pengeluaran bulan $monthName.",
+                    text = "Tentukan batas pengeluaran dan periode tanggal budget.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { input ->
@@ -1553,10 +1572,48 @@ fun SetBudgetDialog(
                     placeholder = { Text("Contoh: 3.000.000") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     isError = errorText != null,
-                    supportingText = errorText?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Text(
+                    text = "Periode Tanggal Budget:",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { pickingStartDate = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Awal", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(startDate.format(ShortDateFormatter), fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = { pickingEndDate = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Akhir", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(endDate.format(ShortDateFormatter), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                if (errorText != null) {
+                    Text(
+                        text = errorText!!,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         },
         confirmButton = {
@@ -1565,8 +1622,10 @@ fun SetBudgetDialog(
                     val parsed = parseAmountInput(amountText)
                     if (parsed <= 0 && amountText.isNotBlank()) {
                         errorText = "Masukkan nilai budget yang valid."
+                    } else if (startDate.isAfter(endDate)) {
+                        errorText = "Tanggal awal tidak boleh setelah tanggal akhir."
                     } else {
-                        onConfirm(parsed)
+                        onConfirm(parsed, startDate, endDate)
                     }
                 }
             ) {
@@ -1579,4 +1638,58 @@ fun SetBudgetDialog(
             }
         }
     )
+
+    if (pickingStartDate) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = startDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { pickingStartDate = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        startDate = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
+                        errorText = null
+                    }
+                    pickingStartDate = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickingStartDate = false }) {
+                    Text("Batal")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (pickingEndDate) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = endDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { pickingEndDate = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        endDate = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
+                        errorText = null
+                    }
+                    pickingEndDate = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickingEndDate = false }) {
+                    Text("Batal")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 }

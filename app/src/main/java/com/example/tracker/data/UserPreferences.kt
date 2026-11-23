@@ -1,11 +1,21 @@
 package com.example.tracker.data
 
 import android.content.Context
+import java.time.LocalDate
+import java.time.YearMonth
 
 data class BackupBudget(
     val year: Int,
     val month: Int,
-    val amount: Double
+    val amount: Double,
+    val startDate: String? = null,
+    val endDate: String? = null
+)
+
+data class Budget(
+    val amount: Double = 0.0,
+    val startDate: LocalDate,
+    val endDate: LocalDate
 )
 
 class UserPreferences(context: Context) {
@@ -36,36 +46,61 @@ class UserPreferences(context: Context) {
         get() = prefs.getInt(KEY_THEME_COLOR, 0)
         set(value) = prefs.edit().putInt(KEY_THEME_COLOR, value).apply()
 
-    fun getBudgetForMonth(year: Int, month: Int): Double {
-        val key = "budget_${year}_$month"
-        val valueStr = prefs.getString(key, null) ?: return 0.0
-        return valueStr.toDoubleOrNull() ?: 0.0
+    fun getBudgetForMonth(yearMonth: YearMonth): Budget {
+        val key = "budget_${yearMonth.year}_${yearMonth.monthValue}"
+        val amountStr = prefs.getString(key, null)
+        val amount = amountStr?.toDoubleOrNull() ?: 0.0
+
+        val startStr = prefs.getString("${key}_start", null)
+        val endStr = prefs.getString("${key}_end", null)
+
+        val startDate = startStr?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?: yearMonth.atDay(1)
+        val endDate = endStr?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?: yearMonth.atEndOfMonth()
+
+        return Budget(
+            amount = amount,
+            startDate = startDate,
+            endDate = endDate
+        )
     }
 
-    fun getBudgetForMonth(yearMonth: java.time.YearMonth): Double {
-        return getBudgetForMonth(yearMonth.year, yearMonth.monthValue)
-    }
-
-    fun setBudgetForMonth(year: Int, month: Int, amount: Double) {
-        val key = "budget_${year}_$month"
-        prefs.edit().putString(key, amount.toString()).apply()
-    }
-
-    fun setBudgetForMonth(yearMonth: java.time.YearMonth, amount: Double) {
-        setBudgetForMonth(yearMonth.year, yearMonth.monthValue, amount)
+    fun setBudgetForMonth(
+        yearMonth: YearMonth,
+        amount: Double,
+        startDate: LocalDate = yearMonth.atDay(1),
+        endDate: LocalDate = yearMonth.atEndOfMonth()
+    ) {
+        val key = "budget_${yearMonth.year}_${yearMonth.monthValue}"
+        prefs.edit().apply {
+            putString(key, amount.toString())
+            putString("${key}_start", startDate.toString())
+            putString("${key}_end", endDate.toString())
+        }.apply()
     }
 
     fun getAllMonthlyBudgets(): List<BackupBudget> {
         val list = mutableListOf<BackupBudget>()
         prefs.all.forEach { (key, value) ->
-            if (key.startsWith("budget_")) {
+            if (key.startsWith("budget_") && !key.endsWith("_start") && !key.endsWith("_end")) {
                 val parts = key.removePrefix("budget_").split("_")
                 if (parts.size == 2) {
                     val year = parts[0].toIntOrNull()
                     val month = parts[1].toIntOrNull()
                     val amount = (value as? String)?.toDoubleOrNull()
                     if (year != null && month != null && amount != null) {
-                        list.add(BackupBudget(year, month, amount))
+                        val startStr = prefs.getString("${key}_start", null)
+                        val endStr = prefs.getString("${key}_end", null)
+                        list.add(
+                            BackupBudget(
+                                year = year,
+                                month = month,
+                                amount = amount,
+                                startDate = startStr,
+                                endDate = endStr
+                            )
+                        )
                     }
                 }
             }

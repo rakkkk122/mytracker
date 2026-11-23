@@ -320,7 +320,13 @@ object DataBackupManager {
         val prefs = UserPreferences(context)
         payload.budgets.forEach { b ->
             if (b.year > 0 && b.month in 1..12 && b.amount >= 0) {
-                prefs.setBudgetForMonth(b.year, b.month, b.amount)
+                val yearMonth = java.time.YearMonth.of(b.year, b.month)
+                val startDate = b.startDate?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+                    ?: yearMonth.atDay(1)
+                val endDate = b.endDate?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+                    ?: yearMonth.atEndOfMonth()
+
+                prefs.setBudgetForMonth(yearMonth, b.amount, startDate, endDate)
             }
         }
 
