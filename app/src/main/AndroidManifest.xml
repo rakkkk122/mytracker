@@ -50,6 +50,15 @@
                 <action android:name="com.example.tracker.ACTION_COMPLETE_ALARM" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".reminder.QuickActionReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.tracker.ACTION_MARK_NO_SPEND" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

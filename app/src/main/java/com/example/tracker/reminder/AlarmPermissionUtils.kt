@@ -11,6 +11,7 @@ import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.tracker.TrackerApplication
+import com.example.tracker.data.UserPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -76,6 +77,13 @@ object AlarmPermissionUtils {
                     .forEach { plan ->
                         scheduler.schedule(plan)
                     }
+
+                // Reschedule smart reminder
+                val prefs = UserPreferences(context)
+                val (enabled, hour, minute) = prefs.getDailyReminderSettings()
+                if (enabled) {
+                    SmartReminderScheduler.scheduleNext(context, hour, minute)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }

@@ -76,10 +76,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.tracker.data.DailyCheckIn
 import com.example.tracker.data.Plan
 import com.example.tracker.data.UserPreferences
 import com.example.tracker.reminder.AlarmPermissionUtils
 import com.example.tracker.reminder.AlarmTones
+import com.example.tracker.ui.checkin.CheckInViewModel
 import com.example.tracker.ui.common.rememberTonePicker
 import java.time.Duration
 import java.time.Instant
@@ -111,13 +113,15 @@ data class NewPlanInput(
 
 @Composable
 fun PlanScreen(
-    viewModel: PlanViewModel = viewModel(factory = PlanViewModel.Factory)
+    viewModel: PlanViewModel = viewModel(factory = PlanViewModel.Factory),
+    checkInViewModel: CheckInViewModel = viewModel(factory = CheckInViewModel.Factory)
 ) {
     val context = LocalContext.current
     val selectedDate by viewModel.selectedDate.collectAsState()
     val visibleMonth by viewModel.visibleMonth.collectAsState()
     val plans by viewModel.plansForSelectedDate.collectAsState()
     val planCounts by viewModel.planCountByDate.collectAsState()
+    val allCheckIns by checkInViewModel.allCheckInsMap.collectAsState()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var planToCopy by remember { mutableStateOf<Plan?>(null) }
@@ -229,6 +233,7 @@ fun PlanScreen(
                 month = visibleMonth,
                 selectedDate = selectedDate,
                 planCounts = planCounts,
+                checkIns = allCheckIns,
                 onPreviousMonth = viewModel::showPreviousMonth,
                 onNextMonth = viewModel::showNextMonth,
                 onToday = viewModel::goToToday,
@@ -341,6 +346,7 @@ private fun MonthCalendar(
     month: YearMonth,
     selectedDate: LocalDate,
     planCounts: Map<LocalDate, Int>,
+    checkIns: Map<LocalDate, DailyCheckIn>,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onToday: () -> Unit,
@@ -406,11 +412,14 @@ private fun MonthCalendar(
                             val day = row * 7 + col - adjustedBlanks + 1
                             if (day in 1..daysInMonth) {
                                 val date = month.atDay(day)
+                                val checkIn = checkIns[date]
                                 DayCell(
                                     day = day,
                                     isSelected = date == selectedDate,
                                     isToday = date == today,
                                     hasPlans = (planCounts[date] ?: 0) > 0,
+                                    isCheckedIn = checkIn?.isCheckedIn == true,
+                                    isNoSpend = checkIn?.isNoSpendDay == true,
                                     onClick = { onSelectDate(date) },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -419,6 +428,31 @@ private fun MonthCalendar(
                             }
                         }
                     }
+                }
+            }
+
+            // Keterangan Indikator Kalender
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
+                    Text("Plan", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.width(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF10B981)))
+                    Text("Check-in", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.width(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF3B82F6)))
+                    Text("No-Spend", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -431,6 +465,8 @@ private fun DayCell(
     isSelected: Boolean,
     isToday: Boolean,
     hasPlans: Boolean,
+    isCheckedIn: Boolean = false,
+    isNoSpend: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -444,7 +480,7 @@ private fun DayCell(
     Box(
         modifier = modifier
             .aspectRatio(1f)
-            .padding(3.dp)
+            .padding(2.dp)
             .clip(CircleShape)
             .background(if (isSelected) colors.primary else Color.Transparent)
             .then(
@@ -460,15 +496,39 @@ private fun DayCell(
             fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
             color = textColor
         )
-        if (hasPlans) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 5.dp)
-                    .size(4.dp)
-                    .clip(CircleShape)
-                    .background(if (isSelected) colors.onPrimary else colors.tertiary)
-            )
+
+        // Indikator Titik: Plan, Check-in (Hijau), No-Spend (Biru)
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (hasPlans) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) colors.onPrimary else colors.tertiary)
+                )
+            }
+            if (isCheckedIn) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) colors.onPrimary else Color(0xFF10B981))
+                )
+            }
+            if (isNoSpend) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) colors.onPrimary else Color(0xFF3B82F6))
+                )
+            }
         }
     }
 }

@@ -1,8 +1,19 @@
 package com.example.tracker.data
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.YearMonth
+
+val Context.reminderDataStore: DataStore<Preferences> by preferencesDataStore(name = "reminder_settings")
 
 data class BackupBudget(
     val year: Int,
@@ -18,7 +29,7 @@ data class Budget(
     val endDate: LocalDate
 )
 
-class UserPreferences(context: Context) {
+class UserPreferences(private val context: Context) {
 
     private val prefs = context.applicationContext
         .getSharedPreferences("tracker_prefs", Context.MODE_PRIVATE)
@@ -45,6 +56,40 @@ class UserPreferences(context: Context) {
     var themeColor: Int
         get() = prefs.getInt(KEY_THEME_COLOR, 0)
         set(value) = prefs.edit().putInt(KEY_THEME_COLOR, value).apply()
+
+    // --- DataStore untuk Smart Daily Reminder ---
+    val dailyReminderEnabledFlow: Flow<Boolean> = context.applicationContext.reminderDataStore.data.map { preferences ->
+        preferences[KEY_DAILY_REMINDER_ENABLED] ?: true
+    }
+
+    val dailyReminderHourFlow: Flow<Int> = context.applicationContext.reminderDataStore.data.map { preferences ->
+        preferences[KEY_DAILY_REMINDER_HOUR] ?: 20
+    }
+
+    val dailyReminderMinuteFlow: Flow<Int> = context.applicationContext.reminderDataStore.data.map { preferences ->
+        preferences[KEY_DAILY_REMINDER_MINUTE] ?: 30
+    }
+
+    suspend fun setDailyReminderEnabled(enabled: Boolean) {
+        context.applicationContext.reminderDataStore.edit { preferences ->
+            preferences[KEY_DAILY_REMINDER_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setDailyReminderTime(hour: Int, minute: Int) {
+        context.applicationContext.reminderDataStore.edit { preferences ->
+            preferences[KEY_DAILY_REMINDER_HOUR] = hour
+            preferences[KEY_DAILY_REMINDER_MINUTE] = minute
+        }
+    }
+
+    suspend fun getDailyReminderSettings(): Triple<Boolean, Int, Int> {
+        val prefs = context.applicationContext.reminderDataStore.data.first()
+        val enabled = prefs[KEY_DAILY_REMINDER_ENABLED] ?: true
+        val hour = prefs[KEY_DAILY_REMINDER_HOUR] ?: 20
+        val minute = prefs[KEY_DAILY_REMINDER_MINUTE] ?: 30
+        return Triple(enabled, hour, minute)
+    }
 
     fun getBudgetForMonth(yearMonth: YearMonth): Budget {
         val key = "budget_${yearMonth.year}_${yearMonth.monthValue}"
@@ -108,10 +153,14 @@ class UserPreferences(context: Context) {
         return list
     }
 
-    private companion object {
+    companion object {
         const val KEY_NOTIFICATIONS = "notifications_enabled"
         const val KEY_DEFAULT_TONE = "default_alarm_tone"
         const val KEY_DARK_MODE = "dark_mode"
         const val KEY_THEME_COLOR = "theme_color"
+
+        val KEY_DAILY_REMINDER_ENABLED = booleanPreferencesKey("daily_reminder_enabled")
+        val KEY_DAILY_REMINDER_HOUR = intPreferencesKey("daily_reminder_hour")
+        val KEY_DAILY_REMINDER_MINUTE = intPreferencesKey("daily_reminder_minute")
     }
 }

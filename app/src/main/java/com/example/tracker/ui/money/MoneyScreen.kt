@@ -73,6 +73,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import com.example.tracker.data.Budget
+import com.example.tracker.data.DailyCheckIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -92,6 +93,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tracker.data.Expense
+import com.example.tracker.ui.checkin.CheckInViewModel
 import com.example.tracker.ui.plan.PlanImage
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
@@ -146,7 +148,8 @@ data class NewExpenseInput(
 
 @Composable
 fun MoneyScreen(
-    viewModel: MoneyViewModel = viewModel(factory = MoneyViewModel.Factory)
+    viewModel: MoneyViewModel = viewModel(factory = MoneyViewModel.Factory),
+    checkInViewModel: CheckInViewModel = viewModel(factory = CheckInViewModel.Factory)
 ) {
     val context = LocalContext.current
     val selectedDate by viewModel.selectedDate.collectAsState()
@@ -154,6 +157,7 @@ fun MoneyScreen(
     val allExpenses by viewModel.allExpensesUiState.collectAsState()
     val dailyTotal by viewModel.dailyTotal.collectAsState()
     val expenseCounts by viewModel.expenseCountByDate.collectAsState()
+    val allCheckIns by checkInViewModel.allCheckInsMap.collectAsState()
 
     val budgetCounter by viewModel.budgetUpdateCounter.collectAsState()
     val visibleMonthBudget = remember(visibleMonth, budgetCounter) { viewModel.getBudgetForMonth(visibleMonth) }
@@ -271,6 +275,7 @@ fun MoneyScreen(
                         month = visibleMonth,
                         selectedDate = selectedDate,
                         expenseCounts = expenseCounts,
+                        checkIns = allCheckIns,
                         expanded = calendarExpanded,
                         onToggleExpanded = { calendarExpanded = !calendarExpanded },
                         onPrevious = onPrevious,
@@ -437,10 +442,6 @@ private sealed interface AgendaItem {
     }
 }
 
-/**
- * Susun daftar agenda untuk satu bulan: ringkasan bulan, judul minggu, lalu hari-hari
- * yang punya pengeluaran. Tanggal terpilih ikut tampil (kosong) supaya kalender dan daftar selaras.
- */
 private fun buildAgenda(
     allExpenses: List<Expense>,
     month: YearMonth,
@@ -479,6 +480,7 @@ private fun MonthCalendar(
     month: YearMonth,
     selectedDate: LocalDate,
     expenseCounts: Map<LocalDate, Int>,
+    checkIns: Map<LocalDate, DailyCheckIn> = emptyMap(),
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
     onPrevious: () -> Unit,
@@ -500,7 +502,6 @@ private fun MonthCalendar(
         .replaceFirstChar { it.uppercase() }
     val title = if (month.year != today.year) "$monthName ${month.year}" else monthName
 
-    // Minggu yang ditampilkan: seluruh bulan (diperluas) atau hanya minggu terpilih (diciutkan)
     val first = month.atDay(1)
     val leadingBlanks = first.dayOfWeek.value - 1
     val gridStart = first.minusDays(leadingBlanks.toLong())
@@ -517,7 +518,6 @@ private fun MonthCalendar(
             .fillMaxWidth()
             .padding(bottom = 8.dp)
     ) {
-        // Judul bulan (ketuk untuk ciutkan/perluas) + navigasi
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -555,7 +555,6 @@ private fun MonthCalendar(
                     contentDescription = if (expanded) "Bulan berikutnya" else "Minggu berikutnya"
                 )
             }
-            // Tombol "Hari ini": ikon kalender berisi tanggal hari ini
             IconButton(onClick = onToday) {
                 Box(
                     modifier = Modifier
@@ -573,7 +572,6 @@ private fun MonthCalendar(
             }
         }
 
-        // Label hari, dengan lajur kosong untuk nomor minggu
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -593,7 +591,6 @@ private fun MonthCalendar(
 
         Spacer(Modifier.height(4.dp))
 
-        // Grid tanggal: geser kiri/kanan untuk pindah bulan (atau minggu)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -636,12 +633,15 @@ private fun MonthCalendar(
                                     .height(48.dp)
                             )
                         } else {
+                            val checkIn = checkIns[date]
                             DayCell(
                                 day = date.dayOfMonth,
                                 isSelected = date == selectedDate,
                                 isToday = date == today,
                                 inMonth = inMonth,
                                 hasExpenses = (expenseCounts[date] ?: 0) > 0,
+                                isNoSpend = checkIn?.isNoSpendDay == true,
+                                isCheckedIn = checkIn?.isCheckedIn == true,
                                 onClick = { onSelectDate(date) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -660,6 +660,8 @@ private fun DayCell(
     isToday: Boolean,
     inMonth: Boolean,
     hasExpenses: Boolean,
+    isNoSpend: Boolean = false,
+    isCheckedIn: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -698,13 +700,34 @@ private fun DayCell(
             )
         }
         Spacer(Modifier.height(2.dp))
-        // Titik penanda di bawah angka (ruangnya tetap disediakan agar baris sejajar)
-        Box(
-            modifier = Modifier
-                .size(4.dp)
-                .clip(CircleShape)
-                .background(if (hasExpenses) colors.error else Color.Transparent)
-        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (hasExpenses) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(colors.error)
+                )
+            }
+            if (isNoSpend) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF3B82F6))
+                )
+            } else if (isCheckedIn) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF10B981))
+                )
+            }
+        }
     }
 }
 
@@ -762,7 +785,6 @@ private fun WeekHeaderRow(weekStart: LocalDate) {
     )
 }
 
-/** Satu hari di agenda: angka tanggal di kiri, blok pengeluaran di kanan. */
 @Composable
 private fun DayAgenda(
     date: LocalDate,
@@ -835,7 +857,6 @@ private fun DayAgenda(
     }
 }
 
-/** Blok berwarna seperti event di kalender: judul, jam, nominal, dan avatar gambar bila ada. */
 @Composable
 private fun ExpenseBlock(
     expense: Expense,
@@ -897,7 +918,6 @@ private fun ExpenseBlock(
     }
 }
 
-/** Rincian satu pengeluaran (dibuka dengan mengetuk blok), lengkap dengan tombol hapus. */
 @Composable
 private fun ExpenseDetailDialog(
     expense: Expense,
@@ -1150,7 +1170,6 @@ fun AddExpenseDialog(
 
                 Spacer(Modifier.height(12.dp))
 
-                // Input Waktu (Tanpa Alarm)
                 OutlinedButton(
                     onClick = { showTimePicker = true },
                     modifier = Modifier.fillMaxWidth()
@@ -1173,7 +1192,6 @@ fun AddExpenseDialog(
 
                 Spacer(Modifier.height(16.dp))
 
-                // Pilihan Lampiran Gambar
                 if (imageUri != null) {
                     Box(
                         modifier = Modifier
@@ -1381,7 +1399,6 @@ private fun MonthlyBudgetCard(
             }
 
             if (!expanded) {
-                // Tampilan Minimized (Ringkas)
                 if (hasBudget) {
                     Spacer(Modifier.height(6.dp))
                     Row(
@@ -1420,7 +1437,6 @@ private fun MonthlyBudgetCard(
                     }
                 }
             } else {
-                // Tampilan Expanded (Lengkap)
                 Spacer(Modifier.height(8.dp))
 
                 if (!hasBudget) {

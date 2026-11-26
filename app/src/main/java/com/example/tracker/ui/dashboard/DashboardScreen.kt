@@ -44,6 +44,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tracker.data.Expense
 import com.example.tracker.data.Plan
+import com.example.tracker.ui.checkin.CheckInViewModel
+import com.example.tracker.ui.checkin.SmartDailyCheckInBanner
+import com.example.tracker.ui.checkin.SmartDailyCheckInBottomSheet
 import com.example.tracker.ui.money.MoneyViewModel
 import com.example.tracker.ui.money.SetBudgetDialog
 import com.example.tracker.ui.money.formatRupiah
@@ -103,14 +106,33 @@ private fun formatWeekRange(start: LocalDate, end: LocalDate): String {
     }
 }
 
+private data class PctBadgeData(
+    val bg: Color,
+    val fg: Color,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val text: String
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
+    initialOpenCheckIn: Boolean = false,
     viewModel: PlanViewModel = viewModel(factory = PlanViewModel.Factory),
-    moneyViewModel: MoneyViewModel = viewModel(factory = MoneyViewModel.Factory)
+    moneyViewModel: MoneyViewModel = viewModel(factory = MoneyViewModel.Factory),
+    checkInViewModel: CheckInViewModel = viewModel(factory = CheckInViewModel.Factory)
 ) {
     val allPlans by viewModel.allPlansUiState.collectAsState()
     val allExpenses by moneyViewModel.allExpensesUiState.collectAsState()
+    val todayCheckIn by checkInViewModel.todayCheckIn.collectAsState()
+    val checkInPlans by checkInViewModel.todayPlans.collectAsState()
+
+    var showCheckInBottomSheet by remember { mutableStateOf(initialOpenCheckIn) }
+
+    LaunchedEffect(initialOpenCheckIn) {
+        if (initialOpenCheckIn) {
+            showCheckInBottomSheet = true
+        }
+    }
 
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now()
@@ -269,133 +291,154 @@ fun DashboardScreen(
                 }
             }
 
-        item {
-            ProgressCard(completed = completed, total = total)
-        }
-
-        if (nextPlan != null) {
+            // 1. SMART DAILY CHECK-IN BANNER
             item {
-                NextPlanCard(
-                    plan = nextPlan,
-                    zone = zone,
-                    nowMillis = nowMillis,
-                    onClick = { planDetail = nextPlan }
+                SmartDailyCheckInBanner(
+                    checkIn = todayCheckIn,
+                    onOpenCheckIn = { showCheckInBottomSheet = true }
                 )
             }
-        }
 
-        item {
-            WeekOverview(
-                days = planWeekDays,
-                today = today,
-                weekStart = selectedPlanWeekStart,
-                currentWeekStart = currentWeekStart,
-                plansByDay = plansByDay,
-                onPreviousWeek = { selectedPlanWeekStart = selectedPlanWeekStart.minusWeeks(1) },
-                onNextWeek = { selectedPlanWeekStart = selectedPlanWeekStart.plusWeeks(1) },
-                onResetToCurrentWeek = { selectedPlanWeekStart = currentWeekStart },
-                onWeekClick = { activeDetailView = DetailViewType.WEEKLY }
-            )
-        }
+            item {
+                ProgressCard(completed = completed, total = total)
+            }
 
-        item {
-            SummaryReportCard(
-                weekTotal = planWeekTotal,
-                weekCompleted = planWeekCompleted,
-                monthTotal = monthTotal,
-                monthCompleted = monthCompleted,
-                selectedMonth = selectedStatsMonth,
-                selectedWeekStart = selectedPlanWeekStart,
-                currentWeekStart = currentWeekStart,
-                onPreviousMonth = { selectedStatsMonth = selectedStatsMonth.minusMonths(1) },
-                onNextMonth = { selectedStatsMonth = selectedStatsMonth.plusMonths(1) },
-                onPreviousWeek = { selectedPlanWeekStart = selectedPlanWeekStart.minusWeeks(1) },
-                onNextWeek = { selectedPlanWeekStart = selectedPlanWeekStart.plusWeeks(1) },
-                onWeekClick = { activeDetailView = DetailViewType.WEEKLY },
-                onMonthClick = { activeDetailView = DetailViewType.MONTHLY }
-            )
-        }
+            if (nextPlan != null) {
+                item {
+                    NextPlanCard(
+                        plan = nextPlan,
+                        zone = zone,
+                        nowMillis = nowMillis,
+                        onClick = { planDetail = nextPlan }
+                    )
+                }
+            }
 
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 4.dp, end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Jadwal hari ini",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
+            item {
+                WeekOverview(
+                    days = planWeekDays,
+                    today = today,
+                    weekStart = selectedPlanWeekStart,
+                    currentWeekStart = currentWeekStart,
+                    plansByDay = plansByDay,
+                    onPreviousWeek = { selectedPlanWeekStart = selectedPlanWeekStart.minusWeeks(1) },
+                    onNextWeek = { selectedPlanWeekStart = selectedPlanWeekStart.plusWeeks(1) },
+                    onResetToCurrentWeek = { selectedPlanWeekStart = currentWeekStart },
+                    onWeekClick = { activeDetailView = DetailViewType.WEEKLY }
                 )
-                if (todayPlans.isNotEmpty()) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    ) {
-                        Text(
-                            text = "${todayPlans.size} plan",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
+            }
+
+            item {
+                SummaryReportCard(
+                    weekTotal = planWeekTotal,
+                    weekCompleted = planWeekCompleted,
+                    monthTotal = monthTotal,
+                    monthCompleted = monthCompleted,
+                    selectedMonth = selectedStatsMonth,
+                    selectedWeekStart = selectedPlanWeekStart,
+                    currentWeekStart = currentWeekStart,
+                    onPreviousMonth = { selectedStatsMonth = selectedStatsMonth.minusMonths(1) },
+                    onNextMonth = { selectedStatsMonth = selectedStatsMonth.plusMonths(1) },
+                    onPreviousWeek = { selectedPlanWeekStart = selectedPlanWeekStart.minusWeeks(1) },
+                    onNextWeek = { selectedPlanWeekStart = selectedPlanWeekStart.plusWeeks(1) },
+                    onWeekClick = { activeDetailView = DetailViewType.WEEKLY },
+                    onMonthClick = { activeDetailView = DetailViewType.MONTHLY }
+                )
+            }
+
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 4.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Jadwal hari ini",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (todayPlans.isNotEmpty()) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ) {
+                            Text(
+                                text = "${todayPlans.size} plan",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        if (todayPlans.isEmpty()) {
+            if (todayPlans.isEmpty()) {
+                item {
+                    Text(
+                        text = "Belum ada plan hari ini. Buka tab Plan untuk menambahkan.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                items(todayPlans, key = { it.id }) { plan ->
+                    PlanItem(
+                        plan = plan,
+                        onCheckedChange = { viewModel.togglePlanCompletion(plan) },
+                        onCopy = { planToCopy = plan },
+                        onClick = { planDetail = plan },
+                        onImageClick = { previewImagePath = it }
+                    )
+                }
+            }
+
             item {
-                Text(
-                    text = "Belum ada plan hari ini. Buka tab Plan untuk menambahkan.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 24.dp),
-                    textAlign = TextAlign.Center
-                )
-            }
-        } else {
-            items(todayPlans, key = { it.id }) { plan ->
-                PlanItem(
-                    plan = plan,
-                    onCheckedChange = { viewModel.togglePlanCompletion(plan) },
-                    onCopy = { planToCopy = plan },
-                    onClick = { planDetail = plan },
-                    onImageClick = { previewImagePath = it }
+                Spacer(Modifier.height(8.dp))
+                FinanceDashboardCard(
+                    selectedMonth = selectedExpenseMonth,
+                    onPreviousMonth = { selectedExpenseMonth = selectedExpenseMonth.minusMonths(1) },
+                    onNextMonth = { selectedExpenseMonth = selectedExpenseMonth.plusMonths(1) },
+                    onResetToCurrentMonth = { selectedExpenseMonth = YearMonth.now() },
+                    selectedWeekStart = selectedExpenseWeekStart,
+                    currentWeekStart = currentWeekStart,
+                    onPreviousWeek = { selectedExpenseWeekStart = selectedExpenseWeekStart.minusWeeks(1) },
+                    onNextWeek = { selectedExpenseWeekStart = selectedExpenseWeekStart.plusWeeks(1) },
+                    onResetToCurrentWeek = { selectedExpenseWeekStart = currentWeekStart },
+                    weekTotal = weekExpenseTotal,
+                    weekCount = weekExpenseCount,
+                    monthTotal = monthBudgetTotalExpense,
+                    monthCount = monthExpenseCount,
+                    monthBudget = selectedExpenseMonthBudget,
+                    onSetBudget = { showSetBudgetDialogMonth = selectedExpenseMonth },
+                    percentageChange = expensePercentageChange,
+                    recentExpenses = monthExpenses.take(5),
+                    onWeekClick = { activeExpenseDetailView = DetailViewType.WEEKLY },
+                    onMonthClick = { activeExpenseDetailView = DetailViewType.MONTHLY }
                 )
             }
         }
+    }
 
-        item {
-        Spacer(Modifier.height(8.dp))
-        FinanceDashboardCard(
-            selectedMonth = selectedExpenseMonth,
-            onPreviousMonth = { selectedExpenseMonth = selectedExpenseMonth.minusMonths(1) },
-            onNextMonth = { selectedExpenseMonth = selectedExpenseMonth.plusMonths(1) },
-            onResetToCurrentMonth = { selectedExpenseMonth = YearMonth.now() },
-            selectedWeekStart = selectedExpenseWeekStart,
-            currentWeekStart = currentWeekStart,
-            onPreviousWeek = { selectedExpenseWeekStart = selectedExpenseWeekStart.minusWeeks(1) },
-            onNextWeek = { selectedExpenseWeekStart = selectedExpenseWeekStart.plusWeeks(1) },
-            onResetToCurrentWeek = { selectedExpenseWeekStart = currentWeekStart },
-            weekTotal = weekExpenseTotal,
-            weekCount = weekExpenseCount,
-            monthTotal = monthBudgetTotalExpense,
-            monthCount = monthExpenseCount,
-            monthBudget = selectedExpenseMonthBudget,
-            onSetBudget = { showSetBudgetDialogMonth = selectedExpenseMonth },
-            percentageChange = expensePercentageChange,
-            recentExpenses = monthExpenses.take(5),
-            onWeekClick = { activeExpenseDetailView = DetailViewType.WEEKLY },
-            onMonthClick = { activeExpenseDetailView = DetailViewType.MONTHLY }
+    // Modal Bottom Sheet untuk Smart Daily Check-in
+    if (showCheckInBottomSheet) {
+        SmartDailyCheckInBottomSheet(
+            checkIn = todayCheckIn,
+            todayPlans = checkInPlans,
+            onTogglePlan = { checkInViewModel.togglePlanCompletion(it) },
+            onSubmit = { isNoSpend, mood, note, newExpense, imageUri ->
+                checkInViewModel.submitCheckIn(isNoSpend, mood, note, newExpense, imageUri)
+            },
+            onDismiss = { showCheckInBottomSheet = false }
         )
     }
-    }
-}
 
     if (activeExpenseDetailView != null) {
         val isWeekly = activeExpenseDetailView == DetailViewType.WEEKLY
@@ -478,7 +521,6 @@ fun DashboardScreen(
         val groupedDays: List<Pair<LocalDate, List<Plan>>> = if (isWeekly) {
             planWeekDays.map { day -> day to (plansByDay[day].orEmpty()) }
         } else {
-            // Untuk bulanan, tampilkan tanggal di bulan terpilih yang memiliki jadwal plan
             daysInMonth
                 .filter { plansByDay[it]?.isNotEmpty() == true }
                 .map { day -> day to (plansByDay[day].orEmpty()) }
@@ -1423,8 +1465,6 @@ private fun PlanDetailBottomSheet(
                             plans
                         }
 
-                        // Untuk mingguan selalu tampilkan hari Senin-Minggu.
-                        // Untuk bulanan, jika difilter "Hanya Selesai", tampilkan jika ada yang selesai.
                         if (isWeekly || displayedPlans.isNotEmpty()) {
                             item(key = date.toString()) {
                                 DaySection(
@@ -1590,10 +1630,6 @@ fun PlanItem(
     )
 }
 
-/**
- * Kartu plan yang dipakai di daftar hari ini dan di bottom sheet rincian.
- * Hanya menampilkan waktu mulai dan durasi (tanpa waktu selesai).
- */
 @Composable
 private fun PlanRowCard(
     plan: Plan,
@@ -1626,7 +1662,6 @@ private fun PlanRowCard(
                 .then(if (hasImage) Modifier.height(120.dp) else Modifier.heightIn(min = 96.dp)),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Gambar memenuhi tinggi kartu; diredupkan kalau plan sudah selesai
             if (plan.imagePath != null) {
                 Box(
                     modifier = Modifier
@@ -1658,7 +1693,6 @@ private fun PlanRowCard(
                     .weight(1f)
                     .padding(start = 14.dp, top = 12.dp, bottom = 12.dp)
             ) {
-                // Waktu mulai + durasi
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -1723,7 +1757,6 @@ private fun PlanRowCard(
                 }
             }
 
-            // Aksi disusun vertikal agar teks punya ruang lebih
             Column(
                 modifier = Modifier.padding(end = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -1742,7 +1775,6 @@ private fun PlanRowCard(
     }
 }
 
-/** Rincian satu plan (dibuka dengan mengetuk kartu plan), lengkap dengan gambar, rincian, dan aksi. */
 @Composable
 private fun PlanDetailDialog(
     plan: Plan,
@@ -1934,7 +1966,6 @@ private fun FinanceDashboardCard(
         colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerLow)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1959,7 +1990,6 @@ private fun FinanceDashboardCard(
 
             Spacer(Modifier.height(12.dp))
 
-            // Control Pemilihan Bulan
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2006,12 +2036,10 @@ private fun FinanceDashboardCard(
 
             Spacer(Modifier.height(16.dp))
 
-            // 2 Stat Cards Side-by-Side: Mingguan & Bulanan
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Card Pengeluaran Mingguan
                 val isCurrentExpenseWeek = selectedWeekStart == currentWeekStart
                 val weekEnd = selectedWeekStart.plusDays(6)
                 val weekTitle = if (isCurrentExpenseWeek) "Minggu Ini" else "Mingguan"
@@ -2111,7 +2139,6 @@ private fun FinanceDashboardCard(
                     }
                 }
 
-                // Card Pengeluaran Bulanan
                 Card(
                     modifier = Modifier
                         .weight(1f)
@@ -2201,7 +2228,6 @@ private fun FinanceDashboardCard(
 
             Spacer(Modifier.height(14.dp))
 
-            // Box Informasi & Pengawasan Budget Bulanan
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2385,132 +2411,6 @@ private fun FinanceDashboardCard(
                     }
                 }
             }
-
-            Spacer(Modifier.height(14.dp))
-
-            // Percentage change badge + total keseluruhan
-            val (badgeBg, badgeFg, icon, pctText) = when {
-                percentageChange > 0 -> PctBadgeData(
-                    colors.errorContainer,
-                    colors.onErrorContainer,
-                    Icons.AutoMirrored.Filled.TrendingUp,
-                    "+${String.format(Locale.US, "%.1f", percentageChange)}% dibanding bulan lalu"
-                )
-                percentageChange < 0 -> PctBadgeData(
-                    colors.primaryContainer,
-                    colors.onPrimaryContainer,
-                    Icons.AutoMirrored.Filled.TrendingDown,
-                    "${String.format(Locale.US, "%.1f", percentageChange)}% dibanding bulan lalu"
-                )
-                else -> PctBadgeData(
-                    colors.surfaceContainerHigh,
-                    colors.onSurfaceVariant,
-                    Icons.AutoMirrored.Filled.TrendingFlat,
-                    "0% dibanding bulan lalu"
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = badgeBg
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = badgeFg,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = pctText,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = badgeFg
-                        )
-                    }
-                }
-                // Total keseluruhan pengeluaran bulan ini
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "Total",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.onSurfaceVariant
-                    )
-                    Text(
-                        text = formatRupiah(monthTotal),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (monthBudget.amount > 0 && monthTotal > monthBudget.amount)
-                            colors.error else colors.onSurface
-                    )
-                }
-            }
-
-            if (recentExpenses.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.5f))
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Pengeluaran (${selectedMonth.format(DateTimeFormatter.ofPattern("MMM", IndonesianLocale))})",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.onSurfaceVariant
-                    )
-                    TextButton(onClick = onMonthClick) {
-                        Text("Lihat Rincian")
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-                recentExpenses.forEach { expense ->
-                    val zone = ZoneId.systemDefault()
-                    val dateStr = Instant.ofEpochMilli(expense.dateMillis).atZone(zone).toLocalDate()
-                        .format(DateTimeFormatter.ofPattern("d MMM", IndonesianLocale))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = expense.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "$dateStr ${if (expense.reason.isNotBlank()) "• ${expense.reason}" else ""}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            text = formatRupiah(expense.amount),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.error
-                        )
-                    }
-                }
-            }
         }
     }
 }
@@ -2525,16 +2425,16 @@ private fun ExpenseDetailBottomSheet(
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onResetToCurrentMonth: () -> Unit,
-    selectedWeekStart: LocalDate = LocalDate.now(),
-    currentWeekStart: LocalDate = LocalDate.now(),
-    onPreviousWeek: () -> Unit = {},
-    onNextWeek: () -> Unit = {},
-    onResetToCurrentWeek: () -> Unit = {},
+    selectedWeekStart: LocalDate,
+    currentWeekStart: LocalDate,
+    onPreviousWeek: () -> Unit,
+    onNextWeek: () -> Unit,
+    onResetToCurrentWeek: () -> Unit,
     groupedDays: List<Pair<LocalDate, List<Expense>>>,
     totalAmount: Double,
     totalCount: Int,
-    monthBudget: com.example.tracker.data.Budget = com.example.tracker.data.Budget(amount = 0.0, startDate = LocalDate.now(), endDate = LocalDate.now()),
-    onSetBudget: () -> Unit = {},
+    monthBudget: com.example.tracker.data.Budget,
+    onSetBudget: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -2551,7 +2451,6 @@ private fun ExpenseDetailBottomSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp)
         ) {
-            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2574,363 +2473,43 @@ private fun ExpenseDetailBottomSheet(
                 }
             }
 
-            // Week selector for weekly view
-            if (isWeekly) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onPreviousWeek) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                            contentDescription = "Minggu sebelumnya"
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        val weekEnd = selectedWeekStart.plusDays(6)
-                        Text(
-                            text = formatWeekRange(selectedWeekStart, weekEnd),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (selectedWeekStart == currentWeekStart) {
-                            Text(
-                                text = "Minggu Ini",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Text(
-                                text = "Ketuk untuk kembali ke minggu ini",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable(onClick = onResetToCurrentWeek)
-                            )
-                        }
-                    }
-                    IconButton(onClick = onNextWeek) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = "Minggu berikutnya"
-                        )
-                    }
-                }
-            } else {
-                // Month selector for monthly view
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onPreviousMonth) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                            contentDescription = "Bulan sebelumnya"
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = selectedMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", IndonesianLocale)),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (selectedMonth == YearMonth.now()) {
-                            Text(
-                                text = "Bulan Ini",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Text(
-                                text = "Ketuk untuk kembali ke bulan ini",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable(onClick = onResetToCurrentMonth)
-                            )
-                        }
-                    }
-                    IconButton(onClick = onNextMonth) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = "Bulan berikutnya"
-                        )
-                    }
-                }
-            }
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                text = "Total: ${formatRupiah(totalAmount)} ($totalCount transaksi)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
 
             Spacer(Modifier.height(12.dp))
 
-            // Total Card Summary
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "Total Pengeluaran",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = formatRupiah(totalAmount),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = "$totalCount transaksi",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-            }
-
-            if (!isWeekly) {
-                Spacer(Modifier.height(10.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                items(groupedDays) { (date, expenses) ->
+                    if (expenses.isNotEmpty()) {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
                         ) {
-                            Column {
+                            Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
-                                    text = "Budget Bulanan",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "Periode: ${monthBudget.startDate.format(ShortDateFormatter)} - ${monthBudget.endDate.format(ShortDateFormatter)}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            TextButton(
-                                onClick = onSetBudget,
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = if (monthBudget.amount > 0) "Edit Budget" else "Atur Budget",
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
-                        }
-
-                        if (monthBudget.amount <= 0) {
-                            Text(
-                                text = "Budget belum ditentukan untuk periode ini.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            val savedAmount = (monthBudget.amount - totalAmount).coerceAtLeast(0.0)
-                            val pct = ((totalAmount / monthBudget.amount) * 100).toInt()
-                            val ratio = (totalAmount / monthBudget.amount).coerceIn(0.0, 1.0).toFloat()
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Budget: ${formatRupiah(monthBudget.amount)}",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    text = date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", IndonesianLocale)),
+                                    style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Text(
-                                    text = "$pct% terpakai",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = when {
-                                        totalAmount >= monthBudget.amount -> MaterialTheme.colorScheme.error
-                                        totalAmount >= 0.8 * monthBudget.amount -> Color(0xFFE65100)
-                                        else -> MaterialTheme.colorScheme.primary
-                                    }
-                                )
-                            }
-
-                            Spacer(Modifier.height(6.dp))
-
-                            LinearProgressIndicator(
-                                progress = { ratio },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(CircleShape),
-                                color = when {
-                                    totalAmount >= monthBudget.amount -> MaterialTheme.colorScheme.error
-                                    totalAmount >= 0.8 * monthBudget.amount -> Color(0xFFE65100)
-                                    else -> MaterialTheme.colorScheme.primary
-                                },
-                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                            )
-
-                            Spacer(Modifier.height(8.dp))
-
-                            if (totalAmount >= monthBudget.amount) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.error
-                                ) {
-                                    Text(
-                                        text = "🚨 Melebihi budget! Total: ${formatRupiah(totalAmount)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onError,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            } else if (totalAmount >= 0.8 * monthBudget.amount) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFFE65100)
-                                ) {
-                                    Text(
-                                        text = "⚠️ Penggunaan mendekati budget!",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            } else {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer
-                                ) {
-                                    Text(
-                                        text = "Uang Tersimpan dari Budget: ${formatRupiah(savedAmount)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            val hasData = groupedDays.any { it.second.isNotEmpty() }
-            if (!hasData) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Tidak ada pengeluaran pada periode ini.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(groupedDays, key = { it.first.toString() }) { (day, dayExpenses) ->
-                        if (dayExpenses.isNotEmpty()) {
-                            val dayTotal = dayExpenses.sumOf { it.amount }
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = day.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", IndonesianLocale)),
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text = formatRupiah(dayTotal),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                }
-
-                                dayExpenses.forEach { expense ->
-                                    val timeStr = Instant.ofEpochMilli(expense.dateMillis)
-                                        .atZone(ZoneId.systemDefault())
-                                        .toLocalTime()
-                                        .format(TimeFormatter)
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                                        )
+                                Spacer(Modifier.height(6.dp))
+                                expenses.forEach { exp ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = expense.title,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                                Text(
-                                                    text = "$timeStr ${if (expense.reason.isNotBlank()) "• ${expense.reason}" else ""}",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            Text(
-                                                text = formatRupiah(expense.amount),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.error
-                                            )
-                                        }
+                                        Text(exp.title, style = MaterialTheme.typography.bodyMedium)
+                                        Text(formatRupiah(exp.amount), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -2941,10 +2520,3 @@ private fun ExpenseDetailBottomSheet(
         }
     }
 }
-
-private data class PctBadgeData(
-    val bg: Color,
-    val fg: Color,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
-    val text: String
-)

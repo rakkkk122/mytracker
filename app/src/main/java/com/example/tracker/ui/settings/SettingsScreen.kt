@@ -1,5 +1,6 @@
 package com.example.tracker.ui.settings
 
+import android.app.TimePickerDialog
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
@@ -20,6 +22,8 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +41,8 @@ import com.example.tracker.data.UserPreferences
 import com.example.tracker.reminder.AlarmPermissionUtils
 import com.example.tracker.reminder.AlarmTones
 import com.example.tracker.reminder.AndroidAlarmScheduler
+import com.example.tracker.reminder.SmartDailyReminderWorker
+import com.example.tracker.reminder.SmartReminderScheduler
 import com.example.tracker.ui.common.rememberTonePicker
 import com.example.tracker.ui.theme.EmeraldPrimary
 import com.example.tracker.ui.theme.IndigoPrimary
@@ -44,7 +50,9 @@ import com.example.tracker.ui.theme.RosePrimary
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onThemeChanged: () -> Unit = {}) {
     val context = LocalContext.current
@@ -55,6 +63,13 @@ fun SettingsScreen(onThemeChanged: () -> Unit = {}) {
     var defaultTone by remember { mutableStateOf(prefs.defaultAlarmTone) }
     var darkMode by remember { mutableStateOf(prefs.darkMode) }
     var themeColor by remember { mutableStateOf(prefs.themeColor) }
+
+    // Smart Daily Reminder states from DataStore
+    val dailyReminderEnabled by prefs.dailyReminderEnabledFlow.collectAsState(initial = true)
+    val dailyReminderHour by prefs.dailyReminderHourFlow.collectAsState(initial = 20)
+    val dailyReminderMinute by prefs.dailyReminderMinuteFlow.collectAsState(initial = 30)
+
+    var showTimePickerModal by remember { mutableStateOf(false) }
 
     var hasNotificationPerm by remember {
         mutableStateOf(AlarmPermissionUtils.hasNotificationPermission(context))
@@ -146,6 +161,10 @@ fun SettingsScreen(onThemeChanged: () -> Unit = {}) {
         else -> "Indigo"
     }
 
+    val formattedReminderTime = remember(dailyReminderHour, dailyReminderMinute) {
+        String.format(Locale.getDefault(), "%02d:%02d", dailyReminderHour, dailyReminderMinute)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -161,7 +180,63 @@ fun SettingsScreen(onThemeChanged: () -> Unit = {}) {
 
         Spacer(Modifier.height(24.dp))
 
-        SettingsGroup(title = "Pengingat & Alarm") {
+        // Fitur Baru: Smart Daily Reminder (WorkManager)
+        SettingsGroup(title = "Smart Daily Reminder (Pengingat Harian)") {
+            SettingRow(
+                icon = Icons.Default.NotificationsActive,
+                title = "Pengingat Refleksi Harian",
+                subtitle = "Ingatkan check-in & No-Spend Day otomatis setiap malam",
+                trailing = {
+                    Switch(
+                        checked = dailyReminderEnabled,
+                        onCheckedChange = { isChecked ->
+                            coroutineScope.launch {
+                                prefs.setDailyReminderEnabled(isChecked)
+                                if (isChecked) {
+                                    SmartReminderScheduler.scheduleNext(context, dailyReminderHour, dailyReminderMinute)
+                                    Toast.makeText(context, "Pengingat harian aktif jam $formattedReminderTime", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    SmartReminderScheduler.cancel(context)
+                                    Toast.makeText(context, "Pengingat harian dinonaktifkan", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    )
+                },
+                onClick = {
+                    val target = !dailyReminderEnabled
+                    coroutineScope.launch {
+                        prefs.setDailyReminderEnabled(target)
+                        if (target) {
+                            SmartReminderScheduler.scheduleNext(context, dailyReminderHour, dailyReminderMinute)
+                        } else {
+                            SmartReminderScheduler.cancel(context)
+                        }
+                    }
+                }
+            )
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+            SettingRow(
+                icon = Icons.Default.AccessTime,
+                title = "Jam Pengingat",
+                subtitle = "$formattedReminderTime WIB (Ketuk untuk ubah dengan TimePicker)",
+                enabled = dailyReminderEnabled,
+                onClick = {
+                    showTimePickerModal = true
+                }
+            )
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+            SettingRow(
+                icon = Icons.Default.Shield,
+                title = "Aturan Pintar (Smart Skip)",
+                subtitle = "Notifikasi otomatis di-skip jika Anda sudah check-in, mencatat pengeluaran, No-Spend Day, atau menyelesaikan habit hari ini.",
+                onClick = {}
+            )
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        SettingsGroup(title = "Pengingat & Alarm Plan") {
             SettingRow(
                 icon = Icons.Default.Notifications,
                 title = "Notifikasi plan",
@@ -276,13 +351,60 @@ fun SettingsScreen(onThemeChanged: () -> Unit = {}) {
         Spacer(Modifier.height(32.dp))
 
         Text(
-            text = "Versi 1.2.0",
+            text = "Versi 1.3.0",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.align(Alignment.CenterHorizontally),
             color = MaterialTheme.colorScheme.outline
         )
 
         Spacer(Modifier.height(16.dp))
+    }
+
+    if (showTimePickerModal) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = dailyReminderHour,
+            initialMinute = dailyReminderMinute,
+            is24Hour = true
+        )
+        AlertDialog(
+            onDismissRequest = { showTimePickerModal = false },
+            title = { Text("Pilih Jam Pengingat Harian") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    TimePicker(state = timePickerState)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val h = timePickerState.hour
+                        val m = timePickerState.minute
+                        coroutineScope.launch {
+                            prefs.setDailyReminderTime(h, m)
+                            if (dailyReminderEnabled) {
+                                SmartReminderScheduler.scheduleNext(context, h, m)
+                            }
+                            Toast.makeText(
+                                context,
+                                "Pengingat dijadwalkan pukul ${String.format(Locale.getDefault(), "%02d:%02d", h, m)}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        showTimePickerModal = false
+                    }
+                ) {
+                    Text("Simpan")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePickerModal = false }) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 
     if (showDarkModeDialog) {

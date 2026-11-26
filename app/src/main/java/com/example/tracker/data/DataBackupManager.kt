@@ -20,7 +20,10 @@ data class BackupPreferences(
     val notificationsEnabled: Boolean,
     val defaultAlarmTone: String?,
     val darkMode: Int,
-    val themeColor: Int
+    val themeColor: Int,
+    val dailyReminderEnabled: Boolean = true,
+    val dailyReminderHour: Int = 20,
+    val dailyReminderMinute: Int = 30
 )
 
 data class BackupPlan(
@@ -43,6 +46,15 @@ data class BackupExpense(
     val imageBase64: String?
 )
 
+data class BackupCheckIn(
+    val dateStr: String,
+    val isCheckedIn: Boolean,
+    val isNoSpendDay: Boolean,
+    val mood: String?,
+    val note: String?,
+    val checkedInAt: Long
+)
+
 data class BackupPayload(
     val version: Int,
     val app: String,
@@ -51,26 +63,30 @@ data class BackupPayload(
     val preferences: BackupPreferences?,
     val plans: List<BackupPlan>,
     val expenses: List<BackupExpense> = emptyList(),
-    val budgets: List<BackupBudget> = emptyList()
+    val budgets: List<BackupBudget> = emptyList(),
+    val checkIns: List<BackupCheckIn> = emptyList()
 )
 
 object DataBackupManager {
 
     /**
-     * Mengekspor seluruh data plan, pengeluaran, preferensi, dan budget bulanan ke dalam format JSON.
+     * Mengekspor seluruh data plan, pengeluaran, preferensi, budget bulanan, dan daily check-ins ke dalam format JSON.
      * Gambar internal di-encode ke Base64 agar dapat dipulihkan ke perangkat lain.
      */
     suspend fun exportToJson(context: Context): String = withContext(Dispatchers.IO) {
         val app = context.applicationContext as TrackerApplication
         val planRepo = app.container.planRepository
         val expenseRepo = app.container.expenseRepository
+        val checkInRepo = app.container.dailyCheckInRepository
         val prefs = UserPreferences(context)
 
         val allPlans = planRepo.getAllPlansStream().first()
         val allExpenses = expenseRepo.getAllExpensesStream().first()
+        val allCheckIns = checkInRepo.getAllCheckInsStream().first()
+        val (dailyReminderOn, reminderHour, reminderMin) = prefs.getDailyReminderSettings()
 
         val rootJson = JSONObject().apply {
-            put("version", 3)
+            put("version", 4)
             put("app", "Tracker")
             put("exportedAt", System.currentTimeMillis())
             put("exportedDate", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
@@ -81,6 +97,9 @@ object DataBackupManager {
                 put("defaultAlarmTone", prefs.defaultAlarmTone ?: JSONObject.NULL)
                 put("darkMode", prefs.darkMode)
                 put("themeColor", prefs.themeColor)
+                put("dailyReminderEnabled", dailyReminderOn)
+                put("dailyReminderHour", reminderHour)
+                put("dailyReminderMinute", reminderMin)
             }
             put("preferences", prefJson)
 
@@ -141,10 +160,27 @@ object DataBackupManager {
                     put("year", b.year)
                     put("month", b.month)
                     put("amount", b.amount)
+                    put("startDate", b.startDate ?: JSONObject.NULL)
+                    put("endDate", b.endDate ?: JSONObject.NULL)
                 }
                 budgetsArray.put(bObj)
             }
             put("budgets", budgetsArray)
+
+            // Daftar Daily Check-Ins
+            val checkInsArray = JSONArray()
+            allCheckIns.forEach { ci ->
+                val ciObj = JSONObject().apply {
+                    put("dateStr", ci.dateStr)
+                    put("isCheckedIn", ci.isCheckedIn)
+                    put("isNoSpendDay", ci.isNoSpendDay)
+                    put("mood", ci.mood ?: JSONObject.NULL)
+                    put("note", ci.note ?: JSONObject.NULL)
+                    put("checkedInAt", ci.checkedInAt)
+                }
+                checkInsArray.put(ciObj)
+            }
+            put("checkIns", checkInsArray)
         }
 
         rootJson.toString(2)
@@ -167,7 +203,10 @@ object DataBackupManager {
                 notificationsEnabled = it.optBoolean("notificationsEnabled", true),
                 defaultAlarmTone = if (it.isNull("defaultAlarmTone")) null else it.optString("defaultAlarmTone"),
                 darkMode = it.optInt("darkMode", 0),
-                themeColor = it.optInt("themeColor", 0)
+                themeColor = it.optInt("themeColor", 0),
+                dailyReminderEnabled = it.optBoolean("dailyReminderEnabled", true),
+                dailyReminderHour = it.optInt("dailyReminderHour", 20),
+                dailyReminderMinute = it.optInt("dailyReminderMinute", 30)
             )
         }
 
@@ -213,7 +252,25 @@ object DataBackupManager {
                 BackupBudget(
                     year = obj.optInt("year", 0),
                     month = obj.optInt("month", 0),
-                    amount = obj.optDouble("amount", 0.0)
+                    amount = obj.optDouble("amount", 0.0),
+                    startDate = if (obj.isNull("startDate")) null else obj.optString("startDate"),
+                    endDate = if (obj.isNull("endDate")) null else obj.optString("endDate")
+                )
+            )
+        }
+
+        val checkInsList = mutableListOf<BackupCheckIn>()
+        val checkInsArray = root.optJSONArray("checkIns") ?: JSONArray()
+        for (i in 0 until checkInsArray.length()) {
+            val obj = checkInsArray.getJSONObject(i)
+            checkInsList.add(
+                BackupCheckIn(
+                    dateStr = obj.optString("dateStr", ""),
+                    isCheckedIn = obj.optBoolean("isCheckedIn", true),
+                    isNoSpendDay = obj.optBoolean("isNoSpendDay", false),
+                    mood = if (obj.isNull("mood")) null else obj.optString("mood"),
+                    note = if (obj.isNull("note")) null else obj.optString("note"),
+                    checkedInAt = obj.optLong("checkedInAt", System.currentTimeMillis())
                 )
             )
         }
@@ -226,7 +283,8 @@ object DataBackupManager {
             preferences = preferences,
             plans = plansList,
             expenses = expensesList,
-            budgets = budgetsList
+            budgets = budgetsList,
+            checkIns = checkInsList
         )
     }
 
@@ -242,12 +300,14 @@ object DataBackupManager {
         val app = context.applicationContext as TrackerApplication
         val planRepo = app.container.planRepository
         val expenseRepo = app.container.expenseRepository
+        val checkInRepo = app.container.dailyCheckInRepository
         val scheduler = AndroidAlarmScheduler(context)
         val imagesDir = File(context.filesDir, "plan_images").apply { mkdirs() }
 
         if (replaceExisting) {
             planRepo.deleteAllPlans()
             expenseRepo.deleteAllExpenses()
+            checkInRepo.deleteAll()
         }
 
         var importedCount = 0
@@ -317,6 +377,21 @@ object DataBackupManager {
             }
         }
 
+        payload.checkIns.forEach { backupCi ->
+            if (backupCi.dateStr.isNotBlank()) {
+                checkInRepo.saveCheckIn(
+                    DailyCheckIn(
+                        dateStr = backupCi.dateStr,
+                        isCheckedIn = backupCi.isCheckedIn,
+                        isNoSpendDay = backupCi.isNoSpendDay,
+                        mood = backupCi.mood,
+                        note = backupCi.note,
+                        checkedInAt = backupCi.checkedInAt
+                    )
+                )
+            }
+        }
+
         val prefs = UserPreferences(context)
         payload.budgets.forEach { b ->
             if (b.year > 0 && b.month in 1..12 && b.amount >= 0) {
@@ -335,6 +410,8 @@ object DataBackupManager {
             prefs.defaultAlarmTone = payload.preferences.defaultAlarmTone
             prefs.darkMode = payload.preferences.darkMode
             prefs.themeColor = payload.preferences.themeColor
+            prefs.setDailyReminderEnabled(payload.preferences.dailyReminderEnabled)
+            prefs.setDailyReminderTime(payload.preferences.dailyReminderHour, payload.preferences.dailyReminderMinute)
         }
 
         importedCount

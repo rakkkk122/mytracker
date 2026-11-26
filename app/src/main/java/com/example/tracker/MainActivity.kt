@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -44,9 +45,16 @@ import com.example.tracker.ui.settings.SettingsScreen
 import com.example.tracker.ui.theme.TrackerTheme
 
 class MainActivity : ComponentActivity() {
+
+    private var openCheckInDirectly by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        if (intent?.getBooleanExtra("OPEN_CHECK_IN", false) == true) {
+            openCheckInDirectly = true
+        }
 
         // Izinkan layar menyala dan tampil di atas layar kunci saat alarm berbunyi
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -79,12 +87,21 @@ class MainActivity : ComponentActivity() {
             ) {
                 RequestNotificationPermission()
                 TrackerApp(
+                    initialOpenCheckIn = openCheckInDirectly,
                     onThemeChanged = {
                         darkModeSetting = prefs.darkMode
                         themeColorSetting = prefs.themeColor
                     }
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("OPEN_CHECK_IN", false)) {
+            openCheckInDirectly = true
         }
     }
 
@@ -111,7 +128,10 @@ fun RequestNotificationPermission() {
 }
 
 @Composable
-fun TrackerApp(onThemeChanged: () -> Unit) {
+fun TrackerApp(
+    initialOpenCheckIn: Boolean = false,
+    onThemeChanged: () -> Unit
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -149,7 +169,7 @@ fun TrackerApp(onThemeChanged: () -> Unit) {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(TrackerDestination.Dashboard.route) {
-                DashboardScreen()
+                DashboardScreen(initialOpenCheckIn = initialOpenCheckIn)
             }
             composable(TrackerDestination.Plan.route) {
                 PlanScreen()
